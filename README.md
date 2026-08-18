@@ -57,6 +57,39 @@ Production newsroom content, real policy files, API credentials, and other confi
 
 External LLM access must be routed through the backend LLM gateway and configured using environment variables or a secrets manager.
 
+## Development
+
+```bash
+cd apps/api
+
+python -m venv .venv
+
+# Activate the virtual environment.
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+### Test
+
+```bash
+cd apps/api
+pytest
+```
+
+### Example request
+
+```bash
+curl -X POST \
+  http://localhost:8000/api/v1/moderate/frame \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Điều tra vụ xô xát tại Hà Nội",
+    "summary": "Một người bị đâm và được đưa đi cấp cứu."
+  }'
+```
+
+Current moderation logic is a deterministic development mock and must not be treated as production TikTok policy enforcement.
+
 ## Development status
 
-Initial architecture scaffold. Business logic is not implemented yet.
+Layer 1 moderation vertical slice implemented. Policy ingestion, production policy evaluation, external models, persistence, and Layer 2 remain out of scope.

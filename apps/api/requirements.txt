@@ -7,3 +7,4 @@ psycopg[binary]
 alembic
 pgvector
 httpx
+pytest
