@@ -159,6 +159,6 @@ class ScriptResponse(BaseModel):
             raise ValueError("revised_script is only allowed for REVIEW")
         if self.decision is Decision.PASS and (self.violations or self.risk_categories):
             raise ValueError("PASS cannot contain risks or violations")
-        if self.requires_human_review is not (self.decision is not Decision.PASS):
-            raise ValueError("requires_human_review must match the decision")
+        if not self.requires_human_review:
+            raise ValueError("a human editor must make the final publishing decision")
         return self

@@ -48,3 +48,20 @@ def test_layer2_contract_rejects_pass_with_revision() -> None:
             analysis_status=AnalysisStatus.COMPLETE,
             provider_error=None,
         )
+
+
+@pytest.mark.parametrize("decision", [Decision.PASS, Decision.REVIEW, Decision.BLOCK])
+def test_layer2_contract_requires_a_human_editor_for_every_recommendation(decision: Decision) -> None:
+    with pytest.raises(ValidationError):
+        ScriptResponse(
+            decision=decision,
+            risk_level=RiskLevel.LOW,
+            risk_categories=[],
+            violations=[],
+            policy_references=[],
+            reason="invalid",
+            revised_script=None,
+            requires_human_review=False,
+            analysis_status=AnalysisStatus.COMPLETE,
+            provider_error=None,
+        )

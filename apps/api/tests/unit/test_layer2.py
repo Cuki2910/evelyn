@@ -10,6 +10,7 @@ def test_moderate_script_passes_neutral_public_information() -> None:
     assert result.decision is Decision.PASS
     assert result.violations == []
     assert result.revised_script is None
+    assert result.requires_human_review is True
 
 
 def test_moderate_script_reviews_and_removes_nonessential_presentation_detail() -> None:

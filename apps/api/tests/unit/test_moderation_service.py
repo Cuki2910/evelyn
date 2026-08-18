@@ -64,3 +64,22 @@ def test_inconsistent_llm_result_falls_back_without_pass(monkeypatch: pytest.Mon
 
     assert result.decision is Decision.REVIEW
     assert result.analysis_status is AnalysisStatus.PROVIDER_ERROR
+
+
+def test_unsupported_moderation_mode_does_not_call_the_llm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    gateway_called = False
+
+    def gateway_factory() -> InvalidGateway:
+        nonlocal gateway_called
+        gateway_called = True
+        return InvalidGateway()
+
+    monkeypatch.setenv("MODERATION_MODE", "lm")
+    service = ModerationService(gateway_factory=gateway_factory)
+
+    with pytest.raises(LLMGatewayError, match="MODERATION_MODE"):
+        asyncio.run(service.moderate_frame(FrameRequest(title="Thong tin binh thuong")))
+
+    assert gateway_called is False

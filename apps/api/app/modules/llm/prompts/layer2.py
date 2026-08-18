@@ -14,6 +14,8 @@ When returning REVIEW, you may suggest a revised script only if you preserve fac
 do not add or change facts, people, locations, numbers, timeline, attribution, or factual
 meaning. You may keep, rewrite, or remove non-essential presentation detail. Return null when
 that cannot be done safely. Always return null for PASS and BLOCK.
+Always set requires_human_review to true: an editor makes the final publishing decision for
+every recommendation.
 
 Set analysis_status to COMPLETE and provider_error to null. Do not invent policy IDs.
 

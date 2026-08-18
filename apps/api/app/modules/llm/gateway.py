@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.modules.llm.prompts.layer1 import LAYER1_SYSTEM_PROMPT
 from app.modules.llm.prompts.layer2 import LAYER2_SYSTEM_PROMPT
 from app.modules.llm.schemas import LLMGatewayError, LLMSettings
+from app.modules.moderation.decision_engine import DecisionEngine
 from app.modules.moderation.schemas import (
     AnalysisStatus,
     FrameRequest,
@@ -54,7 +55,7 @@ class LLMGateway:
             system_prompt=LAYER1_SYSTEM_PROMPT,
             user_prompt=f"Title:\n{request.title}\n\nSummary:\n{request.summary}",
             response_model=FrameResponse,
-            response_validator=self._validate_frame_policy_ids,
+            response_validator=self._validate_frame_contract,
         )
 
     async def moderate_script(self, request: ScriptRequest) -> ScriptResponse:
@@ -131,9 +132,12 @@ class LLMGateway:
             return response.json()
 
     @staticmethod
-    def _validate_frame_policy_ids(result: FrameResponse) -> None:
+    def _validate_frame_contract(result: FrameResponse) -> None:
         if any(
             policy_result.rule_id not in ALLOWED_DEVELOPMENT_POLICY_IDS
             for policy_result in result.policy_results
         ):
             raise ValueError("The LLM selected a policy ID outside the development policy.")
+        expected_decision = DecisionEngine.decide(result.policy_results)
+        if result.decision is not expected_decision:
+            raise ValueError("The LLM decision conflicts with its policy results.")

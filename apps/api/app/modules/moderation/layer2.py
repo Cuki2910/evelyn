@@ -68,7 +68,7 @@ class Layer2Moderator:
                 policy_references=[],
                 reason="No risks were found by the deterministic development checks.",
                 revised_script=None,
-                requires_human_review=False,
+                requires_human_review=True,
                 analysis_status=AnalysisStatus.COMPLETE,
                 provider_error=None,
             )

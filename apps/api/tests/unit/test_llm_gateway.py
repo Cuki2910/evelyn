@@ -6,7 +6,13 @@ import pytest
 
 from app.modules.llm.gateway import LLMGateway, strict_json_schema
 from app.modules.llm.schemas import LLMGatewayError, LLMSettings
-from app.modules.moderation.schemas import FrameRequest, FrameResponse, ScriptRequest, ScriptResponse
+from app.modules.moderation.schemas import (
+    Decision,
+    FrameRequest,
+    FrameResponse,
+    ScriptRequest,
+    ScriptResponse,
+)
 
 
 def settings() -> LLMSettings:
@@ -40,7 +46,7 @@ def complete_script_payload() -> dict[str, object]:
         "policy_references": [],
         "reason": "No development-policy issue was found.",
         "revised_script": None,
-        "requires_human_review": False,
+        "requires_human_review": True,
         "analysis_status": "COMPLETE",
         "provider_error": None,
     }
@@ -103,19 +109,43 @@ def test_gateway_retries_then_rejects_invalid_structured_output() -> None:
     assert attempts == 2
 
 
-def test_gateway_rejects_inconsistent_layer1_contract() -> None:
-    attempts = 0
-    inconsistent_response: dict[str, Any] = {
-        "decision": "PASS",
+def complete_frame_payload(
+    policy_decisions: list[str], decision: str
+) -> dict[str, object]:
+    return {
+        "decision": decision,
         "risk_level": "LOW",
         "risk_categories": [],
         "violations": [],
-        "policy_results": [],
-        "reason": "No risk found.",
-        "requires_layer2": False,
+        "policy_results": [
+            {
+                "source": "llm_gateway",
+                "decision": policy_decision,
+                "rule_id": "DEV-TT-UNKNOWN",
+                "reason": "Synthetic policy result.",
+            }
+            for policy_decision in policy_decisions
+        ],
+        "reason": "Synthetic moderation result.",
+        "requires_layer2": decision != "BLOCK",
         "analysis_status": "COMPLETE",
         "provider_error": None,
     }
+
+
+@pytest.mark.parametrize(
+    ("policy_decisions", "decision"),
+    [
+        (["BLOCK"], "PASS"),
+        (["REVIEW"], "PASS"),
+        ([], "PASS"),
+    ],
+)
+def test_gateway_rejects_layer1_decision_that_conflicts_with_policy_results(
+    policy_decisions: list[str], decision: str
+) -> None:
+    attempts = 0
+    inconsistent_response = complete_frame_payload(policy_decisions, decision)
 
     async def sender(_: dict[str, object]) -> dict[str, object]:
         nonlocal attempts
@@ -128,3 +158,30 @@ def test_gateway_rejects_inconsistent_layer1_contract() -> None:
         asyncio.run(gateway.moderate_frame(FrameRequest(title="Thong tin binh thuong")))
 
     assert attempts == 2
+
+
+@pytest.mark.parametrize(
+    ("policy_decisions", "decision"),
+    [
+        (["PASS", "PASS"], "PASS"),
+        (["PASS", "REVIEW"], "REVIEW"),
+        (["PASS", "BLOCK"], "BLOCK"),
+    ],
+)
+def test_gateway_accepts_layer1_decision_derived_from_policy_results(
+    policy_decisions: list[str], decision: str
+) -> None:
+    async def sender(_: dict[str, object]) -> dict[str, object]:
+        return {
+            "choices": [
+                {"message": {"content": json.dumps(complete_frame_payload(policy_decisions, decision))}}
+            ]
+        }
+
+    result = asyncio.run(
+        LLMGateway(settings=settings(), sender=sender).moderate_frame(
+            FrameRequest(title="Thong tin binh thuong")
+        )
+    )
+
+    assert result.decision is Decision(decision)

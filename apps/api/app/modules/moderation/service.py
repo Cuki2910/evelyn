@@ -5,6 +5,7 @@ from app.modules.llm.gateway import LLMGateway
 from app.modules.llm.schemas import LLMGatewayError
 from app.modules.moderation.layer1 import Layer1Moderator
 from app.modules.moderation.layer2 import Layer2Moderator
+from app.modules.moderation.decision_engine import DecisionEngine
 from app.modules.moderation.schemas import (
     AnalysisStatus,
     Decision,
@@ -80,13 +81,18 @@ class ModerationService:
 
     @staticmethod
     def _mode() -> str:
-        return os.getenv("MODERATION_MODE", "mock").strip().casefold()
+        mode = os.getenv("MODERATION_MODE", "mock").strip().casefold()
+        if mode not in {"mock", "llm"}:
+            raise LLMGatewayError("MODERATION_MODE must be either 'mock' or 'llm'.")
+        return mode
 
     @staticmethod
     def _validate_complete_frame(result: FrameResponse) -> FrameResponse:
         validated = FrameResponse.model_validate(result.model_dump())
         if validated.analysis_status is not AnalysisStatus.COMPLETE:
             raise LLMGatewayError("LLM result did not complete moderation.")
+        if validated.decision is not DecisionEngine.decide(validated.policy_results):
+            raise LLMGatewayError("LLM decision conflicts with its policy results.")
         return validated
 
     @staticmethod
