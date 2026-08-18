@@ -17,6 +17,8 @@ type ModerationResult = {
   reason: string;
   revised_script?: string | null;
   requires_human_review?: boolean;
+  analysis_status: "COMPLETE" | "PROVIDER_ERROR";
+  provider_error: string | null;
 };
 
 function DecisionBadge({ decision }: { decision: Decision }) {
@@ -29,8 +31,16 @@ function ResultPanel({ result }: { result: ModerationResult | null }) {
   }
 
   const policies = result.policy_references || result.policy_results || [];
+  const providerFailed = result.analysis_status === "PROVIDER_ERROR";
   return (
     <section className="result-panel" aria-live="polite">
+      {providerFailed ? (
+        <div className="provider-warning" role="alert">
+          <strong>Moderation provider unavailable.</strong>
+          <p>{result.provider_error}</p>
+          <small>This fail-safe REVIEW is not a completed content assessment.</small>
+        </div>
+      ) : null}
       <div className="result-heading">
         <span>Khuyến nghị</span>
         <DecisionBadge decision={result.decision} />

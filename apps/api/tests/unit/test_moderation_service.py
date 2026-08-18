@@ -3,22 +3,64 @@ import asyncio
 import pytest
 
 from app.modules.llm.schemas import LLMGatewayError
-from app.modules.moderation.schemas import Decision, ScriptRequest
+from app.modules.moderation.schemas import (
+    AnalysisStatus,
+    Decision,
+    FrameRequest,
+    RiskLevel,
+    ScriptRequest,
+    ScriptResponse,
+)
 from app.modules.moderation.service import ModerationService
 
 
 class InvalidGateway:
+    async def moderate_frame(self, _: FrameRequest):
+        raise LLMGatewayError("invalid")
+
     async def moderate_script(self, _: ScriptRequest):
         raise LLMGatewayError("invalid")
 
 
-def test_invalid_llm_output_is_never_a_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+class InconsistentGateway:
+    async def moderate_script(self, _: ScriptRequest) -> ScriptResponse:
+        # Bypass Pydantic to prove the service enforces the contract after a gateway call.
+        return ScriptResponse.model_construct(
+            decision=Decision.PASS,
+            risk_level=RiskLevel.LOW,
+            risk_categories=["violence"],
+            violations=[],
+            policy_references=[],
+            reason="invalid",
+            revised_script=None,
+            requires_human_review=False,
+            analysis_status=AnalysisStatus.COMPLETE,
+            provider_error=None,
+        )
+
+
+def test_provider_failure_is_not_presented_as_completed_content_review(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("MODERATION_MODE", "llm")
     service = ModerationService(gateway_factory=InvalidGateway)
 
-    result = asyncio.run(
+    frame_result = asyncio.run(service.moderate_frame(FrameRequest(title="Thong tin binh thuong")))
+    script_result = asyncio.run(
         service.moderate_script(ScriptRequest(script="Thong tin thoi tiet binh thuong."))
     )
 
+    for result in (frame_result, script_result):
+        assert result.decision is Decision.REVIEW
+        assert result.analysis_status is AnalysisStatus.PROVIDER_ERROR
+        assert result.provider_error is not None
+
+
+def test_inconsistent_llm_result_falls_back_without_pass(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MODERATION_MODE", "llm")
+    service = ModerationService(gateway_factory=InconsistentGateway)
+
+    result = asyncio.run(service.moderate_script(ScriptRequest(script="Thong tin thoi tiet binh thuong.")))
+
     assert result.decision is Decision.REVIEW
-    assert result.policy_references[0].rule_id == "DEV-TT-UNKNOWN"
+    assert result.analysis_status is AnalysisStatus.PROVIDER_ERROR

@@ -1,29 +1,130 @@
 import asyncio
 import json
+from typing import Any
 
 import pytest
 
-from app.modules.llm.gateway import LLMGateway
+from app.modules.llm.gateway import LLMGateway, strict_json_schema
 from app.modules.llm.schemas import LLMGatewayError, LLMSettings
-from app.modules.moderation.schemas import ScriptRequest
+from app.modules.moderation.schemas import FrameRequest, FrameResponse, ScriptRequest, ScriptResponse
 
 
-async def invalid_sender(_: dict[str, object]) -> dict[str, object]:
-    return {"choices": [{"message": {"content": json.dumps({"decision": "PASS"})}}]}
+def settings() -> LLMSettings:
+    return LLMSettings(
+        provider="openrouter",
+        api_key="test",
+        model="openai/gpt-5.4-mini",
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+
+def test_openrouter_is_the_default_llm_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_API_KEY", "test")
+    monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+
+    configured = LLMSettings.from_environment()
+
+    assert configured.provider == "openrouter"
+    assert configured.model == "openai/gpt-5.4-mini"
+    assert configured.base_url == "https://openrouter.ai/api/v1"
+
+
+def complete_script_payload() -> dict[str, object]:
+    return {
+        "decision": "PASS",
+        "risk_level": "LOW",
+        "risk_categories": [],
+        "violations": [],
+        "policy_references": [],
+        "reason": "No development-policy issue was found.",
+        "revised_script": None,
+        "requires_human_review": False,
+        "analysis_status": "COMPLETE",
+        "provider_error": None,
+    }
+
+
+def assert_strict_objects(schema: object) -> None:
+    if isinstance(schema, dict):
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            assert schema["additionalProperties"] is False
+            assert set(schema["required"]) == set(properties)
+        for value in schema.values():
+            assert_strict_objects(value)
+    elif isinstance(schema, list):
+        for value in schema:
+            assert_strict_objects(value)
+
+
+def test_openrouter_request_includes_privacy_settings_and_strict_schema() -> None:
+    captured_payloads: list[dict[str, object]] = []
+
+    async def sender(payload: dict[str, object]) -> dict[str, object]:
+        captured_payloads.append(payload)
+        return {"choices": [{"message": {"content": json.dumps(complete_script_payload())}}]}
+
+    gateway = LLMGateway(settings=settings(), sender=sender)
+    result = asyncio.run(gateway.moderate_script(ScriptRequest(script="Thong tin binh thuong.")))
+
+    assert result.decision.value == "PASS"
+    payload = captured_payloads[0]
+    assert payload["provider"] == {
+        "zdr": True,
+        "data_collection": "deny",
+        "require_parameters": True,
+    }
+    schema = payload["response_format"]["json_schema"]["schema"]
+    assert_strict_objects(schema)
+    assert "revised_script" in schema["required"]
+    assert "provider_error" in schema["required"]
+
+
+@pytest.mark.parametrize("response_model", [FrameResponse, ScriptResponse])
+def test_strict_schema_requires_every_response_property(response_model: type[object]) -> None:
+    assert_strict_objects(strict_json_schema(response_model))
 
 
 def test_gateway_retries_then_rejects_invalid_structured_output() -> None:
-    gateway = LLMGateway(
-        settings=LLMSettings(
-            provider="openai_compatible",
-            api_key="test",
-            model="test-model",
-            base_url="https://example.test",
-        ),
-        sender=invalid_sender,
-    )
+    attempts = 0
+
+    async def invalid_sender(_: dict[str, object]) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        return {"choices": [{"message": {"content": json.dumps({"decision": "PASS"})}}]}
+
+    gateway = LLMGateway(settings=settings(), sender=invalid_sender)
 
     with pytest.raises(LLMGatewayError):
-        asyncio.run(
-            gateway.moderate_script(ScriptRequest(script="Thong tin thoi tiet binh thuong."))
-        )
+        asyncio.run(gateway.moderate_script(ScriptRequest(script="Thong tin thoi tiet binh thuong.")))
+
+    assert attempts == 2
+
+
+def test_gateway_rejects_inconsistent_layer1_contract() -> None:
+    attempts = 0
+    inconsistent_response: dict[str, Any] = {
+        "decision": "PASS",
+        "risk_level": "LOW",
+        "risk_categories": [],
+        "violations": [],
+        "policy_results": [],
+        "reason": "No risk found.",
+        "requires_layer2": False,
+        "analysis_status": "COMPLETE",
+        "provider_error": None,
+    }
+
+    async def sender(_: dict[str, object]) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        return {"choices": [{"message": {"content": json.dumps(inconsistent_response)}}]}
+
+    gateway = LLMGateway(settings=settings(), sender=sender)
+
+    with pytest.raises(LLMGatewayError):
+        asyncio.run(gateway.moderate_frame(FrameRequest(title="Thong tin binh thuong")))
+
+    assert attempts == 2

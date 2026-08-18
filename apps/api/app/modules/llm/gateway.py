@@ -1,6 +1,6 @@
 import json
 from collections.abc import Awaitable, Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 import httpx
 from pydantic import BaseModel
@@ -8,11 +8,38 @@ from pydantic import BaseModel
 from app.modules.llm.prompts.layer1 import LAYER1_SYSTEM_PROMPT
 from app.modules.llm.prompts.layer2 import LAYER2_SYSTEM_PROMPT
 from app.modules.llm.schemas import LLMGatewayError, LLMSettings
-from app.modules.moderation.schemas import FrameRequest, FrameResponse, ScriptRequest, ScriptResponse
+from app.modules.moderation.schemas import (
+    AnalysisStatus,
+    FrameRequest,
+    FrameResponse,
+    ScriptRequest,
+    ScriptResponse,
+)
 from app.modules.policy.development_policy import ALLOWED_DEVELOPMENT_POLICY_IDS
 
 ResponseModel = TypeVar("ResponseModel", bound=BaseModel)
 Sender = Callable[[dict[str, object]], Awaitable[dict[str, object]]]
+
+
+def strict_json_schema(response_model: type[BaseModel]) -> dict[str, Any]:
+    """Make Pydantic's JSON Schema acceptable for strict structured outputs."""
+
+    schema = response_model.model_json_schema()
+
+    def enforce(node: object) -> None:
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                node["additionalProperties"] = False
+                node["required"] = list(properties)
+            for value in node.values():
+                enforce(value)
+        elif isinstance(node, list):
+            for value in node:
+                enforce(value)
+
+    enforce(schema)
+    return schema
 
 
 class LLMGateway:
@@ -48,6 +75,11 @@ class LLMGateway:
     ) -> ResponseModel:
         payload = {
             "model": self._settings.model,
+            "provider": {
+                "zdr": True,
+                "data_collection": "deny",
+                "require_parameters": True,
+            },
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -57,7 +89,7 @@ class LLMGateway:
                 "json_schema": {
                     "name": response_model.__name__.lower(),
                     "strict": True,
-                    "schema": response_model.model_json_schema(),
+                    "schema": strict_json_schema(response_model),
                 },
             },
         }
@@ -68,6 +100,8 @@ class LLMGateway:
                 content = raw_response["choices"][0]["message"]["content"]
                 parsed = json.loads(content) if isinstance(content, str) else content
                 result = response_model.model_validate(parsed)
+                if result.analysis_status is not AnalysisStatus.COMPLETE:
+                    raise ValueError("LLM results must be complete moderation analyses")
                 if response_validator:
                     response_validator(result)
                 return result

@@ -2,6 +2,7 @@ import re
 
 from app.modules.moderation.risk_classifier import MockRiskClassifier
 from app.modules.moderation.schemas import (
+    AnalysisStatus,
     Decision,
     PolicyReference,
     RiskLevel,
@@ -54,6 +55,8 @@ class Layer2Moderator:
                 reason="This synthetic development-policy case cannot be safely revised.",
                 revised_script=None,
                 requires_human_review=True,
+                analysis_status=AnalysisStatus.COMPLETE,
+                provider_error=None,
             )
 
         if not classified:
@@ -66,6 +69,8 @@ class Layer2Moderator:
                 reason="No risks were found by the deterministic development checks.",
                 revised_script=None,
                 requires_human_review=False,
+                analysis_status=AnalysisStatus.COMPLETE,
+                provider_error=None,
             )
 
         violations = [
@@ -93,6 +98,8 @@ class Layer2Moderator:
             reason="The script needs an editor's review before publication.",
             revised_script=revised_script,
             requires_human_review=True,
+            analysis_status=AnalysisStatus.COMPLETE,
+            provider_error=None,
         )
 
     @classmethod

@@ -10,7 +10,7 @@ decision.
 - [x] Layer 2 full-script moderation: `POST /api/v1/moderate/script`
 - [x] `PASS`, `REVIEW`, and `BLOCK` decisions with structured evidence
 - [x] Synthetic development-policy context and policy references
-- [x] OpenAI-compatible structured-output LLM gateway
+- [x] OpenRouter structured-output LLM gateway with privacy routing controls
 - [x] Offline deterministic mock mode for tests and local demos
 - [x] Minimal Next.js UI for both moderation layers
 
@@ -48,19 +48,22 @@ MODERATION_MODE=mock
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
-`mock` is the default and is deterministic/offline. To use the real provider integration,
+`mock` is the default and is deterministic/offline. To use the real OpenRouter integration,
 set `MODERATION_MODE=llm` along with these backend variables:
 
 ```text
-LLM_PROVIDER=openai_compatible
+LLM_PROVIDER=openrouter
 LLM_API_KEY=...
-LLM_MODEL=...
-LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=openai/gpt-5.4-mini
+LLM_BASE_URL=https://openrouter.ai/api/v1
 ```
 
-The gateway uses the OpenAI-compatible Chat Completions structured JSON-schema interface.
-It retries one invalid response, then returns a safe `REVIEW` fallback. It never converts
-missing evidence or invalid model output into `PASS`.
+The API key is read only from `LLM_API_KEY` in the environment. The gateway uses the
+OpenRouter Chat Completions structured JSON-schema interface and sends `zdr=true`,
+`data_collection=deny`, and `require_parameters=true` on every request. It retries one
+invalid response, then returns an explicit provider-failure `REVIEW` fallback. This is not
+presented as a completed content review and never converts missing evidence or invalid model
+output into `PASS`.
 
 ## Demo flow
 
@@ -68,7 +71,8 @@ missing evidence or invalid model output into `PASS`.
 2. If Layer 1 is not `BLOCK`, enter the full Vietnamese script in **Layer 2** and choose
    **Analyze script**.
 3. Review the decision, risk categories, quoted violations, rule references, and an optional
-   fact-preserving suggested revision. A human editor makes the final decision.
+   fact-preserving suggested revision. If the provider is unavailable, the UI labels the
+   fail-safe result separately. A human editor makes the final decision.
 
 ## Tests
 
@@ -78,7 +82,8 @@ pytest
 ```
 
 The test suite makes no external LLM calls. It covers Layer 1, Layer 2 `PASS`/`REVIEW`/
-`BLOCK`, blank scripts, invalid structured LLM output, and the empty-evidence safety rule.
+`BLOCK`, blank scripts, OpenRouter privacy payloads, strict schemas, invalid/inconsistent LLM
+output, provider fail-safe behavior, and the empty-evidence safety rule.
 
 ## Deferred
 

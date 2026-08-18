@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from app.modules.moderation.decision_engine import DecisionEngine
 from app.modules.moderation.risk_classifier import MockRiskClassifier
 from app.modules.moderation.schemas import (
+    AnalysisStatus,
     Decision,
     FrameRequest,
     FrameResponse,
@@ -51,6 +52,8 @@ class Layer1Moderator:
             policy_results=policy_results,
             reason=self._reason_for(decision),
             requires_layer2=decision is not Decision.BLOCK,
+            analysis_status=AnalysisStatus.COMPLETE,
+            provider_error=None,
         )
 
     @staticmethod
@@ -69,6 +72,7 @@ class Layer1Moderator:
         if self._is_explicit_extreme_case(normalized):
             return [
                 PolicyResult(
+                    source="mock_tiktok_policy",
                     decision=Decision.BLOCK,
                     rule_id="MOCK-EXTREME-VIOLENCE-001",
                     reason="Mock case có mô tả cực đoan về bạo lực và tự hại.",
@@ -78,6 +82,7 @@ class Layer1Moderator:
         if not violations:
             return [
                 PolicyResult(
+                    source="mock_tiktok_policy",
                     decision=Decision.PASS,
                     rule_id="MOCK-GENERAL-001",
                     reason="Không phát hiện yếu tố rủi ro trong bộ từ khóa mock.",
@@ -90,6 +95,7 @@ class Layer1Moderator:
             if rule is None:
                 results.append(
                     PolicyResult(
+                        source="mock_tiktok_policy",
                         decision=Decision.REVIEW,
                         rule_id="MOCK-UNKNOWN-001",
                         reason="Không xác định được policy mock phù hợp.",
@@ -99,6 +105,7 @@ class Layer1Moderator:
             rule_id, reason = rule
             results.append(
                 PolicyResult(
+                    source="mock_tiktok_policy",
                     decision=Decision.REVIEW,
                     rule_id=rule_id,
                     reason=reason,

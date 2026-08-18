@@ -6,6 +6,7 @@ from app.modules.llm.schemas import LLMGatewayError
 from app.modules.moderation.layer1 import Layer1Moderator
 from app.modules.moderation.layer2 import Layer2Moderator
 from app.modules.moderation.schemas import (
+    AnalysisStatus,
     Decision,
     FrameRequest,
     FrameResponse,
@@ -29,8 +30,9 @@ class ModerationService:
         if self._mode() == "mock":
             return self._layer1.moderate(request)
         try:
-            return await self._gateway_factory().moderate_frame(request)
-        except LLMGatewayError:
+            result = await self._gateway_factory().moderate_frame(request)
+            return self._validate_complete_frame(result)
+        except (LLMGatewayError, ValueError):
             return FrameResponse(
                 decision=Decision.REVIEW,
                 risk_level=RiskLevel.MEDIUM,
@@ -46,14 +48,17 @@ class ModerationService:
                 ],
                 reason="Moderation evidence is incomplete; editor review is required.",
                 requires_layer2=True,
+                analysis_status=AnalysisStatus.PROVIDER_ERROR,
+                provider_error="The moderation provider was unavailable or returned invalid output.",
             )
 
     async def moderate_script(self, request: ScriptRequest) -> ScriptResponse:
         if self._mode() == "mock":
             return self._layer2.moderate(request)
         try:
-            return await self._gateway_factory().moderate_script(request)
-        except LLMGatewayError:
+            result = await self._gateway_factory().moderate_script(request)
+            return self._validate_complete_script(result)
+        except (LLMGatewayError, ValueError):
             return ScriptResponse(
                 decision=Decision.REVIEW,
                 risk_level=RiskLevel.MEDIUM,
@@ -69,8 +74,24 @@ class ModerationService:
                 reason="Moderation evidence is incomplete; editor review is required.",
                 revised_script=None,
                 requires_human_review=True,
+                analysis_status=AnalysisStatus.PROVIDER_ERROR,
+                provider_error="The moderation provider was unavailable or returned invalid output.",
             )
 
     @staticmethod
     def _mode() -> str:
         return os.getenv("MODERATION_MODE", "mock").strip().casefold()
+
+    @staticmethod
+    def _validate_complete_frame(result: FrameResponse) -> FrameResponse:
+        validated = FrameResponse.model_validate(result.model_dump())
+        if validated.analysis_status is not AnalysisStatus.COMPLETE:
+            raise LLMGatewayError("LLM result did not complete moderation.")
+        return validated
+
+    @staticmethod
+    def _validate_complete_script(result: ScriptResponse) -> ScriptResponse:
+        validated = ScriptResponse.model_validate(result.model_dump())
+        if validated.analysis_status is not AnalysisStatus.COMPLETE:
+            raise LLMGatewayError("LLM result did not complete moderation.")
+        return validated

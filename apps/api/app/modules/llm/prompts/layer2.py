@@ -15,5 +15,7 @@ do not add or change facts, people, locations, numbers, timeline, attribution, o
 meaning. You may keep, rewrite, or remove non-essential presentation detail. Return null when
 that cannot be done safely. Always return null for PASS and BLOCK.
 
+Set analysis_status to COMPLETE and provider_error to null. Do not invent policy IDs.
+
 {TIKTOK_DEVELOPMENT_POLICY}
 """.strip()

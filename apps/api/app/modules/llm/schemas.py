@@ -15,16 +15,14 @@ class LLMSettings:
 
     @classmethod
     def from_environment(cls) -> "LLMSettings":
-        provider = os.getenv("LLM_PROVIDER", "openai_compatible").strip()
+        provider = os.getenv("LLM_PROVIDER", "openrouter").strip()
         api_key = os.getenv("LLM_API_KEY", "").strip()
-        model = os.getenv("LLM_MODEL", "").strip()
-        base_url = os.getenv("LLM_BASE_URL", "").strip()
-        if not api_key or not model or not base_url:
-            raise LLMGatewayError(
-                "LLM_API_KEY, LLM_MODEL, and LLM_BASE_URL are required in llm mode."
-            )
-        if provider != "openai_compatible":
-            raise LLMGatewayError("Only the openai_compatible provider is supported by this MVP.")
+        model = os.getenv("LLM_MODEL", "openai/gpt-5.4-mini").strip()
+        base_url = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1").strip()
+        if not api_key:
+            raise LLMGatewayError("LLM_API_KEY is required in llm mode.")
+        if provider != "openrouter":
+            raise LLMGatewayError("Only the openrouter provider is supported by this MVP.")
         return cls(
             provider=provider,
             api_key=api_key,

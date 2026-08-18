@@ -1,6 +1,6 @@
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.policy.development_policy import ALLOWED_DEVELOPMENT_POLICY_IDS
 
@@ -18,6 +18,11 @@ class RiskLevel(str, Enum):
     CRITICAL = "CRITICAL"
 
 
+class AnalysisStatus(str, Enum):
+    COMPLETE = "COMPLETE"
+    PROVIDER_ERROR = "PROVIDER_ERROR"
+
+
 class FrameRequest(BaseModel):
     title: str = Field(..., min_length=1)
     summary: str = ""
@@ -31,6 +36,8 @@ class FrameRequest(BaseModel):
 
 
 class Violation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     text: str
     category: str
     severity: RiskLevel
@@ -38,13 +45,17 @@ class Violation(BaseModel):
 
 
 class PolicyResult(BaseModel):
-    source: str = "mock_tiktok_policy"
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
     decision: Decision
     rule_id: str
     reason: str
 
 
 class FrameResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     decision: Decision
     risk_level: RiskLevel
     risk_categories: list[str]
@@ -52,6 +63,21 @@ class FrameResponse(BaseModel):
     policy_results: list[PolicyResult]
     reason: str
     requires_layer2: bool
+    analysis_status: AnalysisStatus
+    provider_error: str | None
+
+    @model_validator(mode="after")
+    def validate_decision_contract(self) -> "FrameResponse":
+        if self.analysis_status is AnalysisStatus.COMPLETE and self.provider_error is not None:
+            raise ValueError("complete moderation cannot include a provider error")
+        if self.analysis_status is AnalysisStatus.PROVIDER_ERROR:
+            if self.decision is not Decision.REVIEW or not self.provider_error:
+                raise ValueError("provider failures must be explicit REVIEW results")
+        if self.requires_layer2 is not (self.decision is not Decision.BLOCK):
+            raise ValueError("requires_layer2 must match the Layer 1 decision")
+        if self.decision is Decision.PASS and (self.violations or self.risk_categories):
+            raise ValueError("PASS cannot contain risks or violations")
+        return self
 
 
 class ScriptRequest(BaseModel):
@@ -80,6 +106,8 @@ class SuggestedAction(str, Enum):
 
 
 class ScriptViolation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     text: str = Field(..., min_length=1)
     category: str
     severity: RiskLevel
@@ -88,6 +116,8 @@ class ScriptViolation(BaseModel):
 
 
 class PolicyReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     rule_id: str
     category: str
     reason: str
@@ -101,19 +131,34 @@ class PolicyReference(BaseModel):
 
 
 class ScriptResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     decision: Decision
     risk_level: RiskLevel
     risk_categories: list[str]
     violations: list[ScriptViolation]
     policy_references: list[PolicyReference]
     reason: str
-    revised_script: str | None = None
+    revised_script: str | None
     requires_human_review: bool
+    analysis_status: AnalysisStatus
+    provider_error: str | None
 
     @model_validator(mode="after")
     def validate_revision_contract(self) -> "ScriptResponse":
+        if self.analysis_status is AnalysisStatus.COMPLETE and self.provider_error is not None:
+            raise ValueError("complete moderation cannot include a provider error")
+        if self.analysis_status is AnalysisStatus.PROVIDER_ERROR:
+            if (
+                self.decision is not Decision.REVIEW
+                or not self.provider_error
+                or self.revised_script is not None
+            ):
+                raise ValueError("provider failures must be explicit unrevised REVIEW results")
         if self.decision is not Decision.REVIEW and self.revised_script is not None:
             raise ValueError("revised_script is only allowed for REVIEW")
         if self.decision is Decision.PASS and (self.violations or self.risk_categories):
             raise ValueError("PASS cannot contain risks or violations")
+        if self.requires_human_review is not (self.decision is not Decision.PASS):
+            raise ValueError("requires_human_review must match the decision")
         return self
