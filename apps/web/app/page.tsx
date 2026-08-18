@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1";
 const DEMO_COMPANIES = [
   { id: "evelyn-news", name: "Evelyn News" },
   { id: "city-desk", name: "City Desk" },
@@ -149,7 +149,7 @@ function PolicyDesk({
         <div>
           <p className="step">00 / COMPANY POLICY</p>
           <h2 id="policy-desk-title">Policy desk</h2>
-          <p>Demo-only policies are saved locally and applied to the selected company in mock mode.</p>
+          <p>Demo-only policies apply in mock mode. On Vercel, policy changes are temporary and may disappear after a function restart.</p>
         </div>
         <label>
           Active company

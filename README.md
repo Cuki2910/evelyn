@@ -37,8 +37,9 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3100`. The frontend defaults to the local API at
-`http://localhost:8000/api/v1`.
+Open `http://localhost:3100`. Set `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1`
+for the local split frontend/API setup. Without it, the frontend calls same-origin `/api/v1`,
+which is the Vercel deployment path.
 
 ## Configuration
 
@@ -99,7 +100,27 @@ The **Policy desk** at the top of the UI lets you select one of the two demo com
 add local `REVIEW` or `BLOCK` keyword rules. Rules are stored in
 `apps/api/app/runtime/company_policies.json`, which is ignored by git. In `mock` mode, a
 matching company rule is included as policy evidence and can change the moderation decision.
-This is a local demo facility, not multi-tenant production policy management.
+This is a local demo facility, not multi-tenant production policy management. On Vercel
+serverless, its filesystem is ephemeral: policy create/delete changes can disappear after a
+function restart. Add durable database-backed storage before relying on it online.
+
+## Vercel deployment
+
+`vercel.json` deploys `apps/web` and `apps/api` as Vercel Services on one origin. Import the
+repository with **Root Directory** left at the repository root, then add these Vercel Environment
+Variables to Preview and Production:
+
+```text
+MODERATION_MODE=llm
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-3.6-flash
+LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+LLM_API_KEY=<Gemini key>
+```
+
+Keep `LLM_API_KEY` server-only. Never create `NEXT_PUBLIC_LLM_API_KEY`. After deployment, verify
+`/health`, `/api/v1/moderate/frame`, `/api/v1/moderate/script`, then test the browser UI with
+synthetic content only.
 
 ## Tests
 
