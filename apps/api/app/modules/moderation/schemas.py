@@ -1,4 +1,5 @@
 from enum import Enum
+import re
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -26,6 +27,7 @@ class AnalysisStatus(str, Enum):
 class FrameRequest(BaseModel):
     title: str = Field(..., min_length=1)
     summary: str = ""
+    company_id: str = Field(default="evelyn-news", min_length=1, max_length=80)
 
     @field_validator("title")
     @classmethod
@@ -83,6 +85,7 @@ class FrameResponse(BaseModel):
 class ScriptRequest(BaseModel):
     title: str | None = Field(default=None, max_length=500)
     script: str = Field(..., min_length=1)
+    company_id: str = Field(default="evelyn-news", min_length=1, max_length=80)
 
     @field_validator("script")
     @classmethod
@@ -97,6 +100,9 @@ class ScriptRequest(BaseModel):
         if value is not None and not value.strip():
             return None
         return value
+
+
+COMPANY_POLICY_RULE_ID = re.compile(r"COMP-[A-Z0-9-]+")
 
 
 class SuggestedAction(str, Enum):
@@ -125,8 +131,8 @@ class PolicyReference(BaseModel):
     @field_validator("rule_id")
     @classmethod
     def rule_id_must_be_from_development_policy(cls, value: str) -> str:
-        if value not in ALLOWED_DEVELOPMENT_POLICY_IDS:
-            raise ValueError("rule_id must be supplied by the development policy")
+        if value not in ALLOWED_DEVELOPMENT_POLICY_IDS and not COMPANY_POLICY_RULE_ID.fullmatch(value):
+            raise ValueError("rule_id must be supplied by the development or company demo policy")
         return value
 
 

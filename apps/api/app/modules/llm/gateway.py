@@ -74,13 +74,8 @@ class LLMGateway:
         response_model: type[ResponseModel],
         response_validator: Callable[[ResponseModel], None] | None = None,
     ) -> ResponseModel:
-        payload = {
+        payload: dict[str, object] = {
             "model": self._settings.model,
-            "provider": {
-                "zdr": True,
-                "data_collection": "deny",
-                "require_parameters": True,
-            },
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -94,6 +89,12 @@ class LLMGateway:
                 },
             },
         }
+        if self._settings.provider == "openrouter":
+            payload["provider"] = {
+                "zdr": True,
+                "data_collection": "deny",
+                "require_parameters": True,
+            }
 
         for attempt in range(2):
             try:

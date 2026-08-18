@@ -10,9 +10,10 @@ decision.
 - [x] Layer 2 full-script moderation: `POST /api/v1/moderate/script`
 - [x] `PASS`, `REVIEW`, and `BLOCK` decisions with structured evidence
 - [x] Synthetic development-policy context and policy references
-- [x] OpenRouter structured-output LLM gateway with privacy routing controls
+- [x] Structured-output LLM gateway supporting OpenRouter, Groq, and Gemini
 - [x] Offline deterministic mock mode for tests and local demos
 - [x] Minimal Next.js UI for both moderation layers
+- [x] Local demo company policies with create/delete controls
 
 The development policy is synthetic and is **not official TikTok policy**. It exists only
 to support local demos of violence, graphic violence, drugs, weapons, sexual content,
@@ -36,7 +37,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. The frontend defaults to the local API at
+Open `http://localhost:3100`. The frontend defaults to the local API at
 `http://localhost:8000/api/v1`.
 
 ## Configuration
@@ -48,22 +49,40 @@ MODERATION_MODE=mock
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 ```
 
-`mock` is the default and is deterministic/offline. To use the real OpenRouter integration,
-set `MODERATION_MODE=llm` along with these backend variables:
+`mock` is the default and is deterministic/offline. To use a real LLM, set
+`MODERATION_MODE=llm` and `LLM_PROVIDER` to one of `openrouter`, `groq`, or `gemini`, along
+with `LLM_API_KEY`. `LLM_MODEL` and `LLM_BASE_URL` are optional and default per provider:
 
 ```text
+# OpenRouter (default provider)
 LLM_PROVIDER=openrouter
-LLM_API_KEY=...
 LLM_MODEL=openai/gpt-5.4-mini
 LLM_BASE_URL=https://openrouter.ai/api/v1
+
+# Groq
+LLM_PROVIDER=groq
+LLM_MODEL=openai/gpt-oss-120b
+LLM_BASE_URL=https://api.groq.com/openai/v1
+
+# Gemini (OpenAI-compatible endpoint)
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-3.6-flash
+LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
 ```
 
-The API key is read only from `LLM_API_KEY` in the environment. The gateway uses the
-OpenRouter Chat Completions structured JSON-schema interface and sends `zdr=true`,
-`data_collection=deny`, and `require_parameters=true` on every request. It retries one
-invalid response, then returns an explicit provider-failure `REVIEW` fallback. This is not
-presented as a completed content review and never converts missing evidence or invalid model
-output into `PASS`.
+The API key is read only from `LLM_API_KEY` in the environment. All three providers use the
+same OpenAI-compatible Chat Completions structured JSON-schema interface. Only OpenRouter
+requests additionally send `zdr=true`, `data_collection=deny`, and `require_parameters=true` —
+Groq and Gemini do not support that field. The gateway retries one invalid response, then
+returns an explicit provider-failure `REVIEW` fallback for any provider. This is not presented
+as a completed content review and never converts missing evidence or invalid model output into
+`PASS`.
+
+**Gemini privacy note:** the free/unpaid Gemini API tier is for synthetic MVP smoke testing
+only. Do not send confidential newsroom material, production policy documents, or
+personal/sensitive data through it. Evelyn does not enable or claim Gemini zero-data-retention
+(ZDR) — data handling depends entirely on your Gemini account/service tier; check Google's own
+terms before using anything beyond synthetic test content.
 
 ## Demo flow
 
@@ -72,7 +91,15 @@ output into `PASS`.
    **Analyze script**.
 3. Review the decision, risk categories, quoted violations, rule references, and an optional
    fact-preserving suggested revision. If the provider is unavailable, the UI labels the
-   fail-safe result separately. A human editor makes the final decision.
+fail-safe result separately. A human editor makes the final decision.
+
+## Company Policy Demo
+
+The **Policy desk** at the top of the UI lets you select one of the two demo companies and
+add local `REVIEW` or `BLOCK` keyword rules. Rules are stored in
+`apps/api/app/runtime/company_policies.json`, which is ignored by git. In `mock` mode, a
+matching company rule is included as policy evidence and can change the moderation decision.
+This is a local demo facility, not multi-tenant production policy management.
 
 ## Tests
 
@@ -87,7 +114,7 @@ output, provider fail-safe behavior, and the empty-evidence safety rule.
 
 ## Deferred
 
-- RAG and policy ingestion
+- RAG and production policy ingestion
 - Database and audit persistence
 - Multi-model validation
 - Authentication and multi-company support

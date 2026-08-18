@@ -1,4 +1,4 @@
-from app.modules.policy.development_policy import TIKTOK_DEVELOPMENT_POLICY
+from app.modules.policy.development_policy import SHARED_MODERATION_POLICY
 
 
 LAYER1_SYSTEM_PROMPT = f"""
@@ -12,5 +12,8 @@ more dangerous than REVIEW.
 Set analysis_status to COMPLETE and provider_error to null. For every policy result, set
 source to llm_gateway. Do not invent policy IDs.
 
-{TIKTOK_DEVELOPMENT_POLICY}
+requires_layer2 MUST be derived from decision: PASS -> true, REVIEW -> true, BLOCK -> false.
+A Layer 1 PASS is preliminary and MUST still proceed to Layer 2.
+
+{SHARED_MODERATION_POLICY}
 """.strip()

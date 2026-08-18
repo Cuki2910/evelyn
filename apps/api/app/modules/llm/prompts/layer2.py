@@ -1,4 +1,4 @@
-from app.modules.policy.development_policy import TIKTOK_DEVELOPMENT_POLICY
+from app.modules.policy.development_policy import SHARED_MODERATION_POLICY
 
 
 LAYER2_SYSTEM_PROMPT = f"""
@@ -19,5 +19,5 @@ every recommendation.
 
 Set analysis_status to COMPLETE and provider_error to null. Do not invent policy IDs.
 
-{TIKTOK_DEVELOPMENT_POLICY}
+{SHARED_MODERATION_POLICY}
 """.strip()

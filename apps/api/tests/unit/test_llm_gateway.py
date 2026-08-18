@@ -2,6 +2,7 @@ import asyncio
 import json
 from typing import Any
 
+import httpx
 import pytest
 
 from app.modules.llm.gateway import LLMGateway, strict_json_schema
@@ -35,6 +36,38 @@ def test_openrouter_is_the_default_llm_configuration(monkeypatch: pytest.MonkeyP
     assert configured.provider == "openrouter"
     assert configured.model == "openai/gpt-5.4-mini"
     assert configured.base_url == "https://openrouter.ai/api/v1"
+
+
+def test_groq_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("LLM_API_KEY", "test")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+
+    configured = LLMSettings.from_environment()
+
+    assert configured.model == "openai/gpt-oss-120b"
+    assert configured.base_url == "https://api.groq.com/openai/v1"
+
+
+def test_gemini_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("LLM_API_KEY", "test")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+
+    configured = LLMSettings.from_environment()
+
+    assert configured.model == "gemini-3.6-flash"
+    assert configured.base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
+
+
+def test_unsupported_provider_is_rejected_before_any_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "foo")
+    monkeypatch.setenv("LLM_API_KEY", "test")
+
+    with pytest.raises(LLMGatewayError, match="Unsupported LLM_PROVIDER"):
+        LLMSettings.from_environment()
 
 
 def complete_script_payload() -> dict[str, object]:
@@ -88,6 +121,70 @@ def test_openrouter_request_includes_privacy_settings_and_strict_schema() -> Non
     assert "provider_error" in schema["required"]
 
 
+def test_gemini_request_has_no_openrouter_provider_field() -> None:
+    captured_payloads: list[dict[str, object]] = []
+
+    async def sender(payload: dict[str, object]) -> dict[str, object]:
+        captured_payloads.append(payload)
+        return {"choices": [{"message": {"content": json.dumps(complete_script_payload())}}]}
+
+    gemini_settings = LLMSettings(
+        provider="gemini",
+        api_key="test",
+        model="gemini-3.6-flash",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+    )
+    gateway = LLMGateway(settings=gemini_settings, sender=sender)
+    asyncio.run(gateway.moderate_script(ScriptRequest(script="Thong tin binh thuong.")))
+
+    payload = captured_payloads[0]
+    assert payload["model"] == "gemini-3.6-flash"
+    assert "messages" in payload
+    assert "provider" not in payload
+    json_schema = payload["response_format"]["json_schema"]
+    assert json_schema["strict"] is True
+    assert "schema" in json_schema
+
+
+def test_groq_request_has_no_openrouter_provider_field() -> None:
+    captured_payloads: list[dict[str, object]] = []
+
+    async def sender(payload: dict[str, object]) -> dict[str, object]:
+        captured_payloads.append(payload)
+        return {"choices": [{"message": {"content": json.dumps(complete_script_payload())}}]}
+
+    groq_settings = LLMSettings(
+        provider="groq",
+        api_key="test",
+        model="openai/gpt-oss-120b",
+        base_url="https://api.groq.com/openai/v1",
+    )
+    gateway = LLMGateway(settings=groq_settings, sender=sender)
+    asyncio.run(gateway.moderate_script(ScriptRequest(script="Thong tin binh thuong.")))
+
+    payload = captured_payloads[0]
+    assert payload["model"] == "openai/gpt-oss-120b"
+    assert "provider" not in payload
+
+
+def test_gemini_http_error_never_becomes_a_successful_result() -> None:
+    async def failing_sender(_: dict[str, object]) -> dict[str, object]:
+        request = httpx.Request("POST", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions")
+        response = httpx.Response(429, request=request)
+        raise httpx.HTTPStatusError("rate limited", request=request, response=response)
+
+    gemini_settings = LLMSettings(
+        provider="gemini",
+        api_key="test",
+        model="gemini-3.6-flash",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+    )
+    gateway = LLMGateway(settings=gemini_settings, sender=failing_sender)
+
+    with pytest.raises(LLMGatewayError):
+        asyncio.run(gateway.moderate_script(ScriptRequest(script="Thong tin binh thuong.")))
+
+
 @pytest.mark.parametrize("response_model", [FrameResponse, ScriptResponse])
 def test_strict_schema_requires_every_response_property(response_model: type[object]) -> None:
     assert_strict_objects(strict_json_schema(response_model))
@@ -102,6 +199,28 @@ def test_gateway_retries_then_rejects_invalid_structured_output() -> None:
         return {"choices": [{"message": {"content": json.dumps({"decision": "PASS"})}}]}
 
     gateway = LLMGateway(settings=settings(), sender=invalid_sender)
+
+    with pytest.raises(LLMGatewayError):
+        asyncio.run(gateway.moderate_script(ScriptRequest(script="Thong tin thoi tiet binh thuong.")))
+
+    assert attempts == 2
+
+
+def test_gemini_retries_then_rejects_malformed_structured_output() -> None:
+    attempts = 0
+
+    async def invalid_sender(_: dict[str, object]) -> dict[str, object]:
+        nonlocal attempts
+        attempts += 1
+        return {"choices": [{"message": {"content": "not valid json"}}]}
+
+    gemini_settings = LLMSettings(
+        provider="gemini",
+        api_key="test",
+        model="gemini-3.6-flash",
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+    )
+    gateway = LLMGateway(settings=gemini_settings, sender=invalid_sender)
 
     with pytest.raises(LLMGatewayError):
         asyncio.run(gateway.moderate_script(ScriptRequest(script="Thong tin thoi tiet binh thuong.")))

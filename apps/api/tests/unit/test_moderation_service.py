@@ -66,6 +66,27 @@ def test_inconsistent_llm_result_falls_back_without_pass(monkeypatch: pytest.Mon
     assert result.analysis_status is AnalysisStatus.PROVIDER_ERROR
 
 
+class GeminiHTTPErrorGateway:
+    """Simulates a Gemini 429/5xx surfacing through the gateway as LLMGatewayError."""
+
+    async def moderate_frame(self, _: FrameRequest):
+        raise LLMGatewayError("gemini provider failure")
+
+    async def moderate_script(self, _: ScriptRequest):
+        raise LLMGatewayError("gemini provider failure")
+
+
+def test_gemini_provider_failure_falls_back_to_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MODERATION_MODE", "llm")
+    service = ModerationService(gateway_factory=GeminiHTTPErrorGateway)
+
+    result = asyncio.run(service.moderate_script(ScriptRequest(script="Thong tin thoi tiet binh thuong.")))
+
+    assert result.decision is Decision.REVIEW
+    assert result.analysis_status is AnalysisStatus.PROVIDER_ERROR
+    assert result.provider_error is not None
+
+
 def test_unsupported_moderation_mode_does_not_call_the_llm(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
