@@ -1,95 +1,89 @@
-# Evelyn
+# Evelyn MVP
 
-Evelyn is an AI-assisted text moderation system for newsroom social-media publishing workflows.
+Evelyn is an AI-assisted, human-in-the-loop text moderation MVP for Vietnamese,
+TikTok-first newsroom publishing. It provides a recommendation, not a final publishing
+decision.
 
-## Current scope
+## MVP status
 
-- Vietnamese text only
-- TikTok-first moderation
-- Two-stage workflow: frame screening -> full script review
-- AI recommendation states: `PASS`, `REVIEW`, `BLOCK`
-- Human-in-the-loop final decision
-- `BLOCK` at Layer 1 stops the pipeline
-- Only `REVIEW` generates a revised script
-- Revised scripts must preserve factual meaning
-- All applicable policy groups must pass for the final recommendation to be `PASS`
+- [x] Layer 1 frame moderation: `POST /api/v1/moderate/frame`
+- [x] Layer 2 full-script moderation: `POST /api/v1/moderate/script`
+- [x] `PASS`, `REVIEW`, and `BLOCK` decisions with structured evidence
+- [x] Synthetic development-policy context and policy references
+- [x] OpenAI-compatible structured-output LLM gateway
+- [x] Offline deterministic mock mode for tests and local demos
+- [x] Minimal Next.js UI for both moderation layers
 
-## Architecture
+The development policy is synthetic and is **not official TikTok policy**. It exists only
+to support local demos of violence, graphic violence, drugs, weapons, sexual content,
+self-harm, hate, and crime moderation.
 
-Evelyn starts as a modular monolith in a monorepo:
+## Run the MVP
 
-```text
-apps/web      Next.js frontend
-apps/api      FastAPI backend
-evals         AI evaluation datasets and runners
-docs          architecture and policy-system documentation
-infra         local/dev infrastructure
-scripts       development utilities
-```
-
-Core backend modules:
-
-```text
-moderation    two-stage moderation orchestration
-policy        ingestion, normalization, rules, retrieval, versioning
-revision      factual-preserving script revision and validation
-llm           single gateway for all external model calls
-audit         decision traceability
-feedback      editor override/evaluation data
-```
-
-## Decision rule
-
-```text
-if any applicable policy result is BLOCK:
-    final = BLOCK
-elif any applicable policy result is REVIEW:
-    final = REVIEW
-else:
-    final = PASS
-```
-
-Uncertainty must resolve to `REVIEW`, never `PASS`.
-
-## Security
-
-Production newsroom content, real policy files, API credentials, and other confidential material must never be committed to this repository.
-
-External LLM access must be routed through the backend LLM gateway and configured using environment variables or a secrets manager.
-
-## Development
+Backend:
 
 ```bash
 cd apps/api
-
-python -m venv .venv
-
-# Activate the virtual environment.
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-### Test
+Frontend (in a second terminal):
+
+```bash
+cd apps/web
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. The frontend defaults to the local API at
+`http://localhost:8000/api/v1`.
+
+## Configuration
+
+Copy `.env.example` to your local environment and keep real credentials out of git.
+
+```text
+MODERATION_MODE=mock
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+```
+
+`mock` is the default and is deterministic/offline. To use the real provider integration,
+set `MODERATION_MODE=llm` along with these backend variables:
+
+```text
+LLM_PROVIDER=openai_compatible
+LLM_API_KEY=...
+LLM_MODEL=...
+LLM_BASE_URL=https://api.openai.com/v1
+```
+
+The gateway uses the OpenAI-compatible Chat Completions structured JSON-schema interface.
+It retries one invalid response, then returns a safe `REVIEW` fallback. It never converts
+missing evidence or invalid model output into `PASS`.
+
+## Demo flow
+
+1. Enter a title and summary in **Layer 1**, then choose **Analyze frame**.
+2. If Layer 1 is not `BLOCK`, enter the full Vietnamese script in **Layer 2** and choose
+   **Analyze script**.
+3. Review the decision, risk categories, quoted violations, rule references, and an optional
+   fact-preserving suggested revision. A human editor makes the final decision.
+
+## Tests
 
 ```bash
 cd apps/api
 pytest
 ```
 
-### Example request
+The test suite makes no external LLM calls. It covers Layer 1, Layer 2 `PASS`/`REVIEW`/
+`BLOCK`, blank scripts, invalid structured LLM output, and the empty-evidence safety rule.
 
-```bash
-curl -X POST \
-  http://localhost:8000/api/v1/moderate/frame \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Điều tra vụ xô xát tại Hà Nội",
-    "summary": "Một người bị đâm và được đưa đi cấp cứu."
-  }'
-```
+## Deferred
 
-Current moderation logic is a deterministic development mock and must not be treated as production TikTok policy enforcement.
-
-## Development status
-
-Layer 1 moderation vertical slice implemented. Policy ingestion, production policy evaluation, external models, persistence, and Layer 2 remain out of scope.
+- RAG and policy ingestion
+- Database and audit persistence
+- Multi-model validation
+- Authentication and multi-company support
+- Uploads, conversation history, and policy administration

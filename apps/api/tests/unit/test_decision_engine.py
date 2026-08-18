@@ -22,3 +22,7 @@ def test_decide_uses_block_review_pass_priority(
     results: list[Decision], expected: Decision
 ) -> None:
     assert DecisionEngine.decide([policy_result(result) for result in results]) is expected
+
+
+def test_decide_reviews_when_no_policy_evidence_is_available() -> None:
+    assert DecisionEngine.decide([]) is Decision.REVIEW
