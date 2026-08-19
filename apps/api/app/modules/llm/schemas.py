@@ -6,6 +6,10 @@ class LLMGatewayError(RuntimeError):
     """Raised when an LLM response cannot be safely used."""
 
 
+class RetryableLLMGatewayError(LLMGatewayError):
+    """A quota or transport failure that may safely use another configured provider."""
+
+
 # provider -> (default model, default base URL)
 PROVIDER_DEFAULTS: dict[str, tuple[str, str]] = {
     "openrouter": ("openai/gpt-5.4-mini", "https://openrouter.ai/api/v1"),
@@ -41,3 +45,29 @@ class LLMSettings:
             model=model,
             base_url=base_url,
         )
+
+    @classmethod
+    def fallback_settings_from_environment(cls) -> list["LLMSettings"]:
+        """Return explicitly configured secondary providers in deterministic order."""
+
+        if os.getenv("LLM_FALLBACK_ENABLED", "false").strip().casefold() != "true":
+            return []
+
+        primary = os.getenv("LLM_PROVIDER", "openrouter").strip()
+        fallbacks: list[LLMSettings] = []
+        for provider, prefix in (("gemini", "GEMINI"), ("groq", "GROQ"), ("openrouter", "OPENROUTER")):
+            if provider == primary:
+                continue
+            api_key = os.getenv(f"{prefix}_API_KEY", "").strip()
+            if not api_key:
+                continue
+            default_model, default_base_url = PROVIDER_DEFAULTS[provider]
+            fallbacks.append(
+                cls(
+                    provider=provider,
+                    api_key=api_key,
+                    model=os.getenv(f"{prefix}_MODEL", "").strip() or default_model,
+                    base_url=(os.getenv(f"{prefix}_BASE_URL", "").strip() or default_base_url).rstrip("/"),
+                )
+            )
+        return fallbacks

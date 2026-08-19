@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from app.modules.llm.prompts.layer1 import LAYER1_SYSTEM_PROMPT
 from app.modules.llm.prompts.layer2 import LAYER2_SYSTEM_PROMPT
 from app.modules.llm.prompts.policy import POLICY_EVALUATION_SYSTEM_PROMPT
-from app.modules.llm.schemas import LLMGatewayError, LLMSettings
+from app.modules.llm.schemas import LLMGatewayError, LLMSettings, RetryableLLMGatewayError
 from app.modules.moderation.decision_engine import DecisionEngine
 from app.modules.moderation.schemas import (
     AnalysisStatus,
@@ -54,9 +54,19 @@ def strict_json_schema(
 class LLMGateway:
     """One thin OpenAI-compatible gateway for structured moderation calls."""
 
-    def __init__(self, settings: LLMSettings | None = None, sender: Sender | None = None) -> None:
+    def __init__(
+        self,
+        settings: LLMSettings | None = None,
+        sender: Sender | None = None,
+        fallback_settings: list[LLMSettings] | None = None,
+    ) -> None:
         self._settings = settings or LLMSettings.from_environment()
         self._sender = sender
+        self._fallback_settings = (
+            fallback_settings
+            if fallback_settings is not None
+            else (LLMSettings.fallback_settings_from_environment() if settings is None else [])
+        )
 
     async def moderate_frame(self, request: FrameRequest) -> FrameResponse:
         return await self._moderate(
@@ -100,12 +110,40 @@ class LLMGateway:
         system_prompt: str,
         user_prompt: str,
         response_model: type[ResponseModel],
-        response_validator: Callable[[ResponseModel], None] | None = None,
+        response_validator: Callable[[ResponseModel, LLMSettings], ResponseModel | None] | None = None,
         require_complete: bool = True,
         schema_excluded_fields: set[str] | None = None,
     ) -> ResponseModel:
+        last_retryable_error: RetryableLLMGatewayError | None = None
+        for settings in [self._settings, *self._fallback_settings]:
+            try:
+                return await self._moderate_with_provider(
+                    settings=settings,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    response_model=response_model,
+                    response_validator=response_validator,
+                    require_complete=require_complete,
+                    schema_excluded_fields=schema_excluded_fields,
+                )
+            except RetryableLLMGatewayError as error:
+                last_retryable_error = error
+
+        raise LLMGatewayError("All configured LLM providers were unavailable.") from last_retryable_error
+
+    async def _moderate_with_provider(
+        self,
+        *,
+        settings: LLMSettings,
+        system_prompt: str,
+        user_prompt: str,
+        response_model: type[ResponseModel],
+        response_validator: Callable[[ResponseModel, LLMSettings], ResponseModel | None] | None,
+        require_complete: bool,
+        schema_excluded_fields: set[str] | None,
+    ) -> ResponseModel:
         payload: dict[str, object] = {
-            "model": self._settings.model,
+            "model": settings.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -119,7 +157,7 @@ class LLMGateway:
                 },
             },
         }
-        if self._settings.provider == "openrouter":
+        if settings.provider == "openrouter":
             payload["provider"] = {
                 "zdr": True,
                 "data_collection": "deny",
@@ -128,42 +166,52 @@ class LLMGateway:
 
         for attempt in range(2):
             try:
-                raw_response = await self._send(payload)
+                raw_response = await self._send(payload, settings)
                 content = raw_response["choices"][0]["message"]["content"]
                 parsed = json.loads(content) if isinstance(content, str) else content
                 result = response_model.model_validate(parsed)
                 if require_complete and result.analysis_status is not AnalysisStatus.COMPLETE:
                     raise ValueError("LLM results must be complete moderation analyses")
                 if response_validator:
-                    response_validator(result)
+                    result = response_validator(result, settings) or result
                 return result
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code in {400, 404, 408, 429} or error.response.status_code >= 500:
+                    raise RetryableLLMGatewayError(
+                        f"{settings.provider} returned HTTP {error.response.status_code}."
+                    ) from error
+                if attempt == 1:
+                    raise LLMGatewayError("The LLM provider rejected the moderation request.") from error
+            except (httpx.TimeoutException, httpx.NetworkError) as error:
+                raise RetryableLLMGatewayError(
+                    f"{settings.provider} was unavailable."
+                ) from error
             except (
                 KeyError,
                 TypeError,
                 ValueError,
                 json.JSONDecodeError,
-                httpx.HTTPError,
             ) as error:
                 if attempt == 1:
                     raise LLMGatewayError("The LLM returned invalid structured moderation output.") from error
 
         raise LLMGatewayError("The LLM could not produce a moderation result.")
 
-    async def _send(self, payload: dict[str, object]) -> dict[str, object]:
+    async def _send(self, payload: dict[str, object], settings: LLMSettings) -> dict[str, object]:
         if self._sender is not None:
             return await self._sender(payload)
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
-                f"{self._settings.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {self._settings.api_key}"},
+                f"{settings.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.api_key}"},
                 json=payload,
             )
             response.raise_for_status()
             return response.json()
 
     @staticmethod
-    def _validate_frame_contract(result: FrameResponse) -> None:
+    def _validate_frame_contract(result: FrameResponse, settings: LLMSettings) -> FrameResponse:
         if any(
             policy_result.rule_id not in ALLOWED_DEVELOPMENT_POLICY_IDS
             for policy_result in result.policy_results
@@ -171,4 +219,13 @@ class LLMGateway:
             raise ValueError("The LLM selected a policy ID outside the development policy.")
         expected_decision = DecisionEngine.decide(result.policy_results)
         if result.decision is not expected_decision:
+            if settings.provider == "groq":
+                # Groq can return a stale top-level decision; derive it from its rule results.
+                return result.model_copy(
+                    update={
+                        "decision": expected_decision,
+                        "requires_layer2": expected_decision.value != "BLOCK",
+                    }
+                )
             raise ValueError("The LLM decision conflicts with its policy results.")
+        return result

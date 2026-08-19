@@ -62,6 +62,76 @@ def test_gemini_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert configured.base_url == "https://generativelanguage.googleapis.com/v1beta/openai"
 
 
+def test_explicit_fallback_settings_exclude_the_primary_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("LLM_FALLBACK_ENABLED", "true")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-test")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-test")
+
+    fallbacks = LLMSettings.fallback_settings_from_environment()
+
+    assert [settings.provider for settings in fallbacks] == ["gemini", "groq"]
+
+
+def test_retryable_provider_error_uses_the_next_configured_provider() -> None:
+    calls: list[str] = []
+
+    async def sender(payload: dict[str, object]) -> dict[str, object]:
+        calls.append(payload["model"])
+        if payload["model"] == "primary-model":
+            request = httpx.Request("POST", "https://primary.test/chat/completions")
+            raise httpx.HTTPStatusError("rate limited", request=request, response=httpx.Response(429, request=request))
+        return {"choices": [{"message": {"content": json.dumps(complete_script_payload())}}]}
+
+    primary = LLMSettings("openrouter", "primary", "primary-model", "https://primary.test")
+    fallback = LLMSettings("groq", "fallback", "fallback-model", "https://fallback.test")
+    result = asyncio.run(
+        LLMGateway(settings=primary, sender=sender, fallback_settings=[fallback]).moderate_script(
+            ScriptRequest(script="Thong tin binh thuong.")
+        )
+    )
+
+    assert result.decision is Decision.PASS
+    assert calls == ["primary-model", "fallback-model"]
+
+
+def test_invalid_structured_output_does_not_trigger_provider_fallback() -> None:
+    calls = 0
+
+    async def sender(_: dict[str, object]) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        return {"choices": [{"message": {"content": "not json"}}]}
+
+    primary = LLMSettings("openrouter", "primary", "primary-model", "https://primary.test")
+    fallback = LLMSettings("groq", "fallback", "fallback-model", "https://fallback.test")
+    with pytest.raises(LLMGatewayError):
+        asyncio.run(
+            LLMGateway(settings=primary, sender=sender, fallback_settings=[fallback]).moderate_script(
+                ScriptRequest(script="Thong tin binh thuong.")
+            )
+        )
+
+    assert calls == 2
+
+
+def test_groq_normalizes_the_top_level_decision_from_policy_results() -> None:
+    async def sender(_: dict[str, object]) -> dict[str, object]:
+        return {"choices": [{"message": {"content": json.dumps(complete_frame_payload(["REVIEW"], "PASS"))}}]}
+
+    groq_settings = LLMSettings("groq", "test", "test", "https://api.groq.test")
+    result = asyncio.run(
+        LLMGateway(settings=groq_settings, sender=sender).moderate_frame(
+            FrameRequest(title="Thong tin binh thuong")
+        )
+    )
+
+    assert result.decision is Decision.REVIEW
+    assert result.requires_layer2 is True
+
+
 def test_unsupported_provider_is_rejected_before_any_request(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_PROVIDER", "foo")
     monkeypatch.setenv("LLM_API_KEY", "test")
