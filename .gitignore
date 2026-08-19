@@ -24,7 +24,9 @@ next-env.d.ts
 # IDE / OS
 .vscode/
 .idea/
-.claude/
+.claude/*
+!.claude/
+!.claude/settings.json
 .DS_Store
 Thumbs.db
 

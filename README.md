@@ -129,6 +129,14 @@ cd apps/api
 pytest
 ```
 
+End-to-end policy smoke test:
+
+```bash
+npm run smoke:e2e
+```
+
+It starts a temporary mock API, creates a policy, verifies matching moderation, then deletes it.
+
 The test suite makes no external LLM calls. It covers Layer 1, Layer 2 `PASS`/`REVIEW`/
 `BLOCK`, blank scripts, OpenRouter privacy payloads, strict schemas, invalid/inconsistent LLM
 output, provider fail-safe behavior, and the empty-evidence safety rule.

@@ -66,16 +66,20 @@ class CompanyPolicyMatch(BaseModel):
     keyword: str
 
 
+def _default_policy_store_path() -> Path:
+    configured_path = os.getenv("COMPANY_POLICY_STORE_PATH")
+    if configured_path:
+        return Path(configured_path)
+    if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        return Path("/tmp/evelyn/company_policies.json")
+    return Path(__file__).resolve().parents[2] / "runtime" / "company_policies.json"
+
+
 class CompanyPolicyStore:
     """Owns demo policy persistence and keyword matching behind one interface."""
 
     def __init__(self, path: Path | None = None) -> None:
-        self._path = path or Path(
-            os.getenv(
-                "COMPANY_POLICY_STORE_PATH",
-                Path(__file__).resolve().parents[2] / "runtime" / "company_policies.json",
-            )
-        )
+        self._path = path or _default_policy_store_path()
 
     def catalog(self) -> CompanyPolicyCatalog:
         return CompanyPolicyCatalog(companies=list(DEMO_COMPANIES), policies=self._load())

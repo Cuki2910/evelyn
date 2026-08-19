@@ -2,7 +2,11 @@ import asyncio
 
 from app.modules.moderation.schemas import Decision, FrameRequest, ScriptRequest
 from app.modules.moderation.service import ModerationService
-from app.modules.policy.company_policy import CompanyPolicyCreate, CompanyPolicyStore
+from app.modules.policy.company_policy import (
+    CompanyPolicyCreate,
+    CompanyPolicyStore,
+    _default_policy_store_path,
+)
 
 
 def create_policy(
@@ -17,6 +21,13 @@ def create_policy(
             reason="This is restricted by the Evelyn News demo policy.",
         )
     )
+
+
+def test_serverless_policy_store_uses_writable_temp_path(monkeypatch) -> None:
+    monkeypatch.delenv("COMPANY_POLICY_STORE_PATH", raising=False)
+    monkeypatch.setenv("VERCEL", "1")
+
+    assert _default_policy_store_path().as_posix() == "/tmp/evelyn/company_policies.json"
 
 
 def test_company_policy_store_persists_and_matches(tmp_path) -> None:

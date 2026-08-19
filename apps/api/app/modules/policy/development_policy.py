@@ -70,6 +70,25 @@ PRESS_LAW_POLICY_RULES: dict[str, dict[str, str]] = {
     },
 }
 
+DAI_POLICY_RULES: dict[str, dict[str, str]] = {
+    "parliament_coverage": {
+        "rule_id": "DAI-POLICY-PARLIAMENT-001",
+        "reason": "Do not publish information about the National Assembly or its sessions.",
+    },
+    "editorial_content": {
+        "rule_id": "DAI-POLICY-EDITORIAL-001",
+        "reason": "Do not publish content identified as editor-edited news.",
+    },
+    "international_relevance": {
+        "rule_id": "DAI-POLICY-INTERNATIONAL-001",
+        "reason": "Publish international news only when it directly affects people in Vietnam.",
+    },
+    "priority_topics": {
+        "rule_id": "DAI-POLICY-PRIORITY-001",
+        "reason": "Prioritize education and health news.",
+    },
+}
+
 TIKTOK_COMMUNITY_POLICY_RULES: dict[str, dict[str, str]] = {
     "sexual_exploitation_of_minors": {
         "rule_id": "TIKTOK-CG-MINOR-EXPLOITATION-001",
@@ -122,6 +141,7 @@ ALLOWED_DEVELOPMENT_POLICY_IDS = frozenset(
     for policy in (
         DEVELOPMENT_POLICY_RULES,
         PRESS_LAW_POLICY_RULES,
+        DAI_POLICY_RULES,
         TIKTOK_COMMUNITY_POLICY_RULES,
     )
     for rule in policy.values()
@@ -155,6 +175,17 @@ criticism, satire, and art when they do not promote or enable the harmful conduc
 - PRESS-LAW-ARTICLE-8-CHILDREN-001: content harmful to children's normal development.
 """.strip()
 
+DAI_POLICY = """
+Đài shared editorial rules. Apply these rules alongside Vietnam Press Law and TikTok Community
+Guidelines. Use REVIEW when applicability or factual relevance is unclear; use BLOCK when the
+content clearly violates a publication prohibition. Priority rules guide ranking, not blocking.
+
+- DAI-POLICY-PARLIAMENT-001: do not publish National Assembly information or session coverage.
+- DAI-POLICY-EDITORIAL-001: do not publish content identified as editor-edited news.
+- DAI-POLICY-INTERNATIONAL-001: publish international news only when it directly affects people in Vietnam.
+- DAI-POLICY-PRIORITY-001: prioritize education and health news.
+""".strip()
+
 TIKTOK_COMMUNITY_POLICY = """
 TikTok Community Guidelines shared rules. For news, distinguish reporting, documentation,
 education, criticism, satire, and art from promotion, facilitation, or harmful depiction.
@@ -175,5 +206,5 @@ unclear; use BLOCK only for severe content that cannot be responsibly revised.
 """.strip()
 
 SHARED_MODERATION_POLICY = "\n\n".join(
-    (TIKTOK_DEVELOPMENT_POLICY, PRESS_LAW_POLICY, TIKTOK_COMMUNITY_POLICY)
+    (TIKTOK_DEVELOPMENT_POLICY, PRESS_LAW_POLICY, DAI_POLICY, TIKTOK_COMMUNITY_POLICY)
 )

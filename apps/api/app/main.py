@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import router as v1_router
 
-DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://localhost:3100"
+DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://localhost:3100,http://127.0.0.1:3100"
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv("CORS_ORIGINS", DEFAULT_CORS_ORIGINS).split(",")

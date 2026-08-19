@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if git status --porcelain -- apps/api apps/web | grep -q .; then npm run smoke:e2e; fi",
+            "shell": "bash",
+            "timeout": 120,
+            "statusMessage": "Running E2E smoke"
+          }
+        ]
+      }
+    ]
+  }
+}

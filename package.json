@@ -1,0 +1,7 @@
+{
+  "name": "evelyn",
+  "private": true,
+  "scripts": {
+    "smoke:e2e": "python apps/api/scripts/smoke_e2e.py"
+  }
+}
