@@ -117,6 +117,7 @@ def test_openrouter_request_includes_privacy_settings_and_strict_schema() -> Non
     }
     schema = payload["response_format"]["json_schema"]["schema"]
     assert_strict_objects(schema)
+    assert "custom_policy_results" not in schema["properties"]
     assert "revised_script" in schema["required"]
     assert "provider_error" in schema["required"]
 

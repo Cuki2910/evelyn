@@ -2,338 +2,47 @@
 
 import { FormEvent, useEffect, useState } from "react";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1";
-const DEMO_COMPANIES = [
-  { id: "evelyn-news", name: "Evelyn News" },
-  { id: "city-desk", name: "City Desk" },
-];
-
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 type Decision = "PASS" | "REVIEW" | "BLOCK";
-type Company = { id: string; name: string };
-type CompanyPolicy = {
-  id: string;
-  company_id: string;
-  title: string;
-  keywords: string[];
-  decision: Exclude<Decision, "PASS">;
-  reason: string;
-  rule_id: string;
-};
-type PolicyCatalog = { companies: Company[]; policies: CompanyPolicy[] };
-type Violation = { text: string; category: string; reason: string; suggested_action?: string };
-type PolicyReference = { rule_id: string; category?: string; reason: string };
-type ModerationResult = {
-  decision: Decision;
-  risk_level: string;
-  risk_categories: string[];
-  violations: Violation[];
-  policy_references?: PolicyReference[];
-  policy_results?: PolicyReference[];
-  reason: string;
-  revised_script?: string | null;
-  requires_human_review?: boolean;
-  analysis_status: "COMPLETE" | "PROVIDER_ERROR";
-  provider_error: string | null;
-};
+type Policy = { rule_id: string; name: string; rule_text: string; violation_action: Exclude<Decision, "PASS">; enabled: boolean };
+type CustomPolicyResult = { rule_id: string; name: string; status: "COMPLIANT" | "VIOLATED" | "UNCERTAIN"; decision: Decision; evidence: string | null; reason: string };
+type ModerationResult = { decision: Decision; risk_level: string; risk_categories: string[]; violations: { text: string; category: string; reason: string; suggested_action?: string }[]; policy_references?: { rule_id: string; reason: string }[]; policy_results?: { rule_id: string; reason: string }[]; custom_policy_results: CustomPolicyResult[]; reason: string; revised_script?: string | null; requires_human_review?: boolean; analysis_status: "COMPLETE" | "PROVIDER_ERROR"; provider_error: string | null };
 
 async function requestJson<Response>(path: string, options?: RequestInit): Promise<Response> {
   const response = await fetch(`${API_BASE_URL}${path}`, options);
-  if (!response.ok) {
-    const error = await response.json().catch(() => null);
-    throw new Error(error?.detail || "The request could not be completed.");
-  }
+  if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail || "The request could not be completed.");
+  if (response.status === 204) return undefined as Response;
   return response.json() as Promise<Response>;
 }
 
-function DecisionBadge({ decision }: { decision: Decision }) {
-  return <span className={`decision decision-${decision.toLowerCase()}`}>{decision}</span>;
-}
+function DecisionBadge({ decision }: { decision: Decision }) { return <span className={`decision decision-${decision.toLowerCase()}`}>{decision}</span>; }
 
 function ResultPanel({ result }: { result: ModerationResult | null }) {
-  if (!result) {
-    return <div className="result-placeholder">Moderation result will appear here.</div>;
-  }
-
-  const policies = result.policy_references || result.policy_results || [];
-  const providerFailed = result.analysis_status === "PROVIDER_ERROR";
-  return (
-    <section className="result-panel" aria-live="polite">
-      {providerFailed ? (
-        <div className="provider-warning" role="alert">
-          <strong>Moderation provider unavailable.</strong>
-          <p>{result.provider_error}</p>
-          <small>This fail-safe REVIEW is not a completed content assessment.</small>
-        </div>
-      ) : null}
-      <div className="result-heading">
-        <span>Recommendation</span>
-        <DecisionBadge decision={result.decision} />
-      </div>
-      <p className="result-reason">{result.reason}</p>
-      <dl className="risk-list">
-        <div><dt>Risk level</dt><dd>{result.risk_level}</dd></div>
-        <div><dt>Categories</dt><dd>{result.risk_categories.length ? result.risk_categories.join(", ") : "None"}</dd></div>
-      </dl>
-      {result.violations.length > 0 ? (
-        <div className="evidence">
-          <h3>Flagged text</h3>
-          {result.violations.map((violation, index) => (
-            <article className="evidence-item" key={`${violation.category}-${index}`}>
-              <q>{violation.text}</q>
-              <p><strong>{violation.category}</strong> - {violation.reason}</p>
-              {violation.suggested_action ? <small>Suggested action: {violation.suggested_action}</small> : null}
-            </article>
-          ))}
-        </div>
-      ) : null}
-      {policies.length > 0 ? (
-        <div className="evidence">
-          <h3>Policy rules</h3>
-          {policies.map((policy, index) => (
-            <p className="policy" key={`${policy.rule_id}-${index}`}><code>{policy.rule_id}</code> {policy.reason}</p>
-          ))}
-        </div>
-      ) : null}
-      {result.revised_script ? (
-        <div className="revision">
-          <h3>Suggested revision</h3>
-          <p>{result.revised_script}</p>
-        </div>
-      ) : null}
-      {result.requires_human_review ? <p className="human-note">Human editor makes the final publishing decision.</p> : null}
-    </section>
-  );
+  if (!result) return <div className="result-placeholder">Moderation result will appear here.</div>;
+  return <section className="result-panel" aria-live="polite">
+    {result.analysis_status === "PROVIDER_ERROR" ? <div className="provider-warning" role="alert"><strong>Moderation provider unavailable.</strong><p>{result.provider_error}</p><small>This fail-safe REVIEW is not a completed assessment.</small></div> : null}
+    <div className="result-heading"><span>Recommendation</span><DecisionBadge decision={result.decision} /></div>
+    <p className="result-reason">{result.reason}</p>
+    <dl className="risk-list"><div><dt>Risk level</dt><dd>{result.risk_level}</dd></div><div><dt>Categories</dt><dd>{result.risk_categories.length ? result.risk_categories.join(", ") : "None"}</dd></div></dl>
+    {result.violations.length ? <div className="evidence"><h3>Flagged text</h3>{result.violations.map((item, index) => <article className="evidence-item" key={`${item.category}-${index}`}><q>{item.text}</q><p><strong>{item.category}</strong> - {item.reason}</p></article>)}</div> : null}
+    {result.custom_policy_results.length ? <div className="evidence"><h3>Custom policy evaluation</h3>{result.custom_policy_results.map((item) => <article className="evidence-item" key={item.rule_id}><p><code>{item.rule_id}</code> - <strong>{item.name}</strong> <DecisionBadge decision={item.decision} /> <small>{item.status}</small></p>{item.evidence ? <q>{item.evidence}</q> : null}<p>{item.reason}</p></article>)}</div> : null}
+    {result.revised_script ? <div className="revision"><h3>Suggested revision</h3><p>{result.revised_script}</p></div> : null}
+    {result.requires_human_review ? <p className="human-note">Human editor makes the final publishing decision.</p> : null}
+  </section>;
 }
 
-type PolicyDeskProps = {
-  catalog: PolicyCatalog;
-  selectedCompany: string;
-  title: string;
-  keywords: string;
-  decision: Exclude<Decision, "PASS">;
-  reason: string;
-  loading: boolean;
-  error: string;
-  onCompanyChange: (value: string) => void;
-  onTitleChange: (value: string) => void;
-  onKeywordsChange: (value: string) => void;
-  onDecisionChange: (value: Exclude<Decision, "PASS">) => void;
-  onReasonChange: (value: string) => void;
-  onCreate: (event: FormEvent<HTMLFormElement>) => void;
-  onDelete: (policyId: string) => void;
-};
-
-function PolicyDesk({
-  catalog,
-  selectedCompany,
-  title,
-  keywords,
-  decision,
-  reason,
-  loading,
-  error,
-  onCompanyChange,
-  onTitleChange,
-  onKeywordsChange,
-  onDecisionChange,
-  onReasonChange,
-  onCreate,
-  onDelete,
-}: PolicyDeskProps) {
-  const companies = catalog.companies.length ? catalog.companies : DEMO_COMPANIES;
-  const policies = catalog.policies.filter((policy) => policy.company_id === selectedCompany);
-
-  return (
-    <section className="policy-desk" aria-labelledby="policy-desk-title">
-      <div className="policy-heading">
-        <div>
-          <p className="step">00 / COMPANY POLICY</p>
-          <h2 id="policy-desk-title">Policy desk</h2>
-          <p>Demo-only policies apply in mock mode. On Vercel, policy changes are temporary and may disappear after a function restart.</p>
-        </div>
-        <label>
-          Active company
-          <select value={selectedCompany} onChange={(event) => onCompanyChange(event.target.value)}>
-            {companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
-          </select>
-        </label>
-      </div>
-      {error ? <p className="error" role="alert">{error}</p> : null}
-      <div className="policy-grid">
-        <div className="policy-list">
-          <h3>Active rules</h3>
-          {policies.length ? policies.map((policy) => (
-            <article className="company-policy" key={policy.id}>
-              <div><DecisionBadge decision={policy.decision} /><code>{policy.rule_id}</code></div>
-              <h4>{policy.title}</h4>
-              <p>{policy.reason}</p>
-              <small>Keywords: {policy.keywords.join(", ")}</small>
-              <button type="button" className="text-button" disabled={loading} onClick={() => onDelete(policy.id)}>Remove</button>
-            </article>
-          )) : <p className="empty-policy">No custom rules for this company yet.</p>}
-        </div>
-        <form className="policy-form" onSubmit={onCreate}>
-          <h3>Add policy</h3>
-          <label>Rule title<input value={title} onChange={(event) => onTitleChange(event.target.value)} required minLength={3} /></label>
-          <label>Keywords <span>comma-separated</span><input value={keywords} onChange={(event) => onKeywordsChange(event.target.value)} required /></label>
-          <label>Action<select value={decision} onChange={(event) => onDecisionChange(event.target.value as Exclude<Decision, "PASS">)}><option value="REVIEW">REVIEW</option><option value="BLOCK">BLOCK</option></select></label>
-          <label>Editor note<textarea value={reason} onChange={(event) => onReasonChange(event.target.value)} rows={3} required minLength={3} /></label>
-          <button disabled={loading} type="submit">{loading ? "Saving..." : "Add policy"}</button>
-        </form>
-      </div>
-    </section>
-  );
-}
-
-async function postModeration(path: string, body: object): Promise<ModerationResult> {
-  return requestJson<ModerationResult>(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+function PolicyDesk({ policies, loading, error, onCreate, onEdit, onDelete }: { policies: Policy[]; loading: boolean; error: string; onCreate: (event: FormEvent<HTMLFormElement>) => void; onEdit: (policy: Policy, update: Partial<Policy>) => void; onDelete: (ruleId: string) => void }) {
+  const [name, setName] = useState(""); const [ruleText, setRuleText] = useState(""); const [action, setAction] = useState<Exclude<Decision, "PASS">>("REVIEW");
+  function promptEdit(policy: Policy) { const name = window.prompt("Rule name", policy.name); if (name === null) return; const ruleText = window.prompt("Rule text", policy.rule_text); if (ruleText === null) return; const action = window.prompt("Violation action (REVIEW or BLOCK)", policy.violation_action); if (action !== "REVIEW" && action !== "BLOCK") return; onEdit(policy, { name, rule_text: ruleText, violation_action: action }); }
+  return <section className="policy-desk" aria-labelledby="policy-desk-title"><div className="policy-heading"><div><p className="step">00 / CUSTOM POLICY</p><h2 id="policy-desk-title">Policies</h2><p>Policies are stored locally. Semantic enforcement runs only when moderation is configured for an LLM; mock mode keeps deterministic built-in checks only.</p></div></div>{error ? <p className="error" role="alert">{error}</p> : null}<div className="policy-grid"><div className="policy-list"><h3>Saved rules</h3>{policies.length ? policies.map((policy) => <article className="company-policy" key={policy.rule_id}><div><DecisionBadge decision={policy.violation_action} /><code>{policy.rule_id}</code></div><h4>{policy.name} {policy.enabled ? null : <small>(disabled)</small>}</h4><p>{policy.rule_text}</p><small>Violation action: {policy.violation_action}</small><div className="policy-actions"><button type="button" className="text-button" disabled={loading} onClick={() => promptEdit(policy)}>Edit</button><button type="button" className="text-button" disabled={loading} onClick={() => onEdit(policy, { enabled: !policy.enabled })}>{policy.enabled ? "Disable" : "Enable"}</button><button type="button" className="text-button" disabled={loading} onClick={() => onDelete(policy.rule_id)}>Delete</button></div></article>) : <p className="empty-policy">No custom policies saved yet.</p>}</div><form className="policy-form" onSubmit={async (event) => { event.preventDefault(); await onCreate(event); setName(""); setRuleText(""); setAction("REVIEW"); }}><h3>Add policy</h3><label>Rule name<input name="name" value={name} maxLength={120} onChange={(event) => setName(event.target.value)} required /></label><label>Rule text <span>{ruleText.length} / 4000</span><textarea name="rule_text" value={ruleText} maxLength={4000} onChange={(event) => setRuleText(event.target.value)} rows={6} required /></label><label>Violation action<select name="violation_action" value={action} onChange={(event) => setAction(event.target.value as Exclude<Decision, "PASS">)}><option value="REVIEW">REVIEW</option><option value="BLOCK">BLOCK</option></select></label><label className="checkbox-label"><input name="enabled" type="checkbox" defaultChecked /> Enabled</label><button disabled={loading} type="submit">{loading ? "Saving..." : "Add policy"}</button></form></div></section>;
 }
 
 export default function Home() {
-  const [title, setTitle] = useState("");
-  const [summary, setSummary] = useState("");
-  const [scriptTitle, setScriptTitle] = useState("");
-  const [script, setScript] = useState("");
-  const [frameResult, setFrameResult] = useState<ModerationResult | null>(null);
-  const [scriptResult, setScriptResult] = useState<ModerationResult | null>(null);
-  const [loading, setLoading] = useState<"frame" | "script" | null>(null);
-  const [error, setError] = useState("");
-  const [catalog, setCatalog] = useState<PolicyCatalog>({ companies: [], policies: [] });
-  const [selectedCompany, setSelectedCompany] = useState("evelyn-news");
-  const [policyTitle, setPolicyTitle] = useState("");
-  const [policyKeywords, setPolicyKeywords] = useState("");
-  const [policyDecision, setPolicyDecision] = useState<Exclude<Decision, "PASS">>("REVIEW");
-  const [policyReason, setPolicyReason] = useState("");
-  const [policyLoading, setPolicyLoading] = useState(false);
-  const [policyError, setPolicyError] = useState("");
-
-  useEffect(() => {
-    let active = true;
-    void requestJson<PolicyCatalog>("/policies")
-      .then((nextCatalog) => { if (active) setCatalog(nextCatalog); })
-      .catch(() => { if (active) setPolicyError("Could not load local company policies."); });
-    return () => { active = false; };
-  }, []);
-
-  async function analyzeFrame(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading("frame");
-    setError("");
-    try {
-      setFrameResult(await postModeration("/moderate/frame", { title, summary, company_id: selectedCompany }));
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Moderation request failed.");
-    } finally {
-      setLoading(null);
-    }
-  }
-
-  async function analyzeScript(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading("script");
-    setError("");
-    try {
-      setScriptResult(await postModeration("/moderate/script", { title: scriptTitle || undefined, script, company_id: selectedCompany }));
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Moderation request failed.");
-    } finally {
-      setLoading(null);
-    }
-  }
-
-  async function createPolicy(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPolicyLoading(true);
-    setPolicyError("");
-    try {
-      const policy = await requestJson<CompanyPolicy>("/policies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          company_id: selectedCompany,
-          title: policyTitle,
-          keywords: policyKeywords.split(",").map((keyword) => keyword.trim()).filter(Boolean),
-          decision: policyDecision,
-          reason: policyReason,
-        }),
-      });
-      setCatalog((current) => ({
-        companies: current.companies.length ? current.companies : DEMO_COMPANIES,
-        policies: [...current.policies, policy],
-      }));
-      setPolicyTitle("");
-      setPolicyKeywords("");
-      setPolicyReason("");
-    } catch (requestError) {
-      setPolicyError(requestError instanceof Error ? requestError.message : "Could not save this policy.");
-    } finally {
-      setPolicyLoading(false);
-    }
-  }
-
-  async function deletePolicy(policyId: string) {
-    setPolicyLoading(true);
-    setPolicyError("");
-    try {
-      const response = await fetch(`${API_BASE_URL}/policies/${policyId}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Could not remove this policy.");
-      setCatalog((current) => ({ ...current, policies: current.policies.filter((policy) => policy.id !== policyId) }));
-    } catch (requestError) {
-      setPolicyError(requestError instanceof Error ? requestError.message : "Could not remove this policy.");
-    } finally {
-      setPolicyLoading(false);
-    }
-  }
-
-  return (
-    <main>
-      <header className="masthead">
-        <p className="eyebrow">VIETNAMESE NEWS SAFETY DESK</p>
-        <h1>Evelyn<span>.</span></h1>
-        <p>Moderation assistance for TikTok-first newsroom publishing. Recommendations only; editors decide.</p>
-      </header>
-      <PolicyDesk
-        catalog={catalog}
-        selectedCompany={selectedCompany}
-        title={policyTitle}
-        keywords={policyKeywords}
-        decision={policyDecision}
-        reason={policyReason}
-        loading={policyLoading}
-        error={policyError}
-        onCompanyChange={setSelectedCompany}
-        onTitleChange={setPolicyTitle}
-        onKeywordsChange={setPolicyKeywords}
-        onDecisionChange={setPolicyDecision}
-        onReasonChange={setPolicyReason}
-        onCreate={createPolicy}
-        onDelete={deletePolicy}
-      />
-      {error ? <p className="error" role="alert">{error}</p> : null}
-      <div className="workbench">
-        <section className="moderation-card">
-          <div className="card-intro"><p className="step">01 / LAYER 1</p><h2>News frame</h2></div>
-          <form onSubmit={analyzeFrame}>
-            <label>Title<input value={title} onChange={(event) => setTitle(event.target.value)} required /></label>
-            <label>Summary<textarea value={summary} onChange={(event) => setSummary(event.target.value)} rows={4} /></label>
-            <button disabled={loading !== null} type="submit">{loading === "frame" ? "Analyzing..." : "Analyze frame"}</button>
-          </form>
-          <ResultPanel result={frameResult} />
-        </section>
-        <section className="moderation-card">
-          <div className="card-intro"><p className="step">02 / LAYER 2</p><h2>Full script</h2></div>
-          <form onSubmit={analyzeScript}>
-            <label>Title <span>(optional)</span><input value={scriptTitle} onChange={(event) => setScriptTitle(event.target.value)} /></label>
-            <label>Script<textarea value={script} onChange={(event) => setScript(event.target.value)} rows={9} required /></label>
-            <button disabled={loading !== null} type="submit">{loading === "script" ? "Analyzing..." : "Analyze script"}</button>
-          </form>
-          <ResultPanel result={scriptResult} />
-        </section>
-      </div>
-    </main>
-  );
+  const [title, setTitle] = useState(""); const [summary, setSummary] = useState(""); const [scriptTitle, setScriptTitle] = useState(""); const [script, setScript] = useState(""); const [frameResult, setFrameResult] = useState<ModerationResult | null>(null); const [scriptResult, setScriptResult] = useState<ModerationResult | null>(null); const [loading, setLoading] = useState<"frame" | "script" | null>(null); const [error, setError] = useState(""); const [policies, setPolicies] = useState<Policy[]>([]); const [policyLoading, setPolicyLoading] = useState(false); const [policyError, setPolicyError] = useState("");
+  useEffect(() => { void requestJson<{ policies: Policy[] }>("/policies").then((catalog) => setPolicies(catalog.policies)).catch(() => setPolicyError("Could not load saved policies.")); }, []);
+  async function analyze(event: FormEvent<HTMLFormElement>, layer: "frame" | "script") { event.preventDefault(); setLoading(layer); setError(""); try { const result = await requestJson<ModerationResult>(`/moderate/${layer}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(layer === "frame" ? { title, summary } : { title: scriptTitle || undefined, script }) }); layer === "frame" ? setFrameResult(result) : setScriptResult(result); } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Moderation request failed."); } finally { setLoading(null); } }
+  async function createPolicy(event: FormEvent<HTMLFormElement>) { const form = new FormData(event.currentTarget); setPolicyLoading(true); setPolicyError(""); try { const policy = await requestJson<Policy>("/policies", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.get("name"), rule_text: form.get("rule_text"), violation_action: form.get("violation_action"), enabled: form.get("enabled") === "on" }) }); setPolicies((current) => [...current, policy]); } catch (requestError) { setPolicyError(requestError instanceof Error ? requestError.message : "Could not save this policy."); } finally { setPolicyLoading(false); } }
+  async function editPolicy(policy: Policy, update: Partial<Policy>) { setPolicyLoading(true); setPolicyError(""); try { const updated = await requestJson<Policy>(`/policies/${policy.rule_id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(update) }); setPolicies((current) => current.map((item) => item.rule_id === updated.rule_id ? updated : item)); } catch (requestError) { setPolicyError(requestError instanceof Error ? requestError.message : "Could not update this policy."); } finally { setPolicyLoading(false); } }
+  async function deletePolicy(ruleId: string) { if (!window.confirm("Delete this policy?")) return; setPolicyLoading(true); setPolicyError(""); try { await requestJson<void>(`/policies/${ruleId}`, { method: "DELETE" }); setPolicies((current) => current.filter((policy) => policy.rule_id !== ruleId)); } catch (requestError) { setPolicyError(requestError instanceof Error ? requestError.message : "Could not remove this policy."); } finally { setPolicyLoading(false); } }
+  return <main><header className="masthead"><p className="eyebrow">VIETNAMESE NEWS SAFETY DESK</p><h1>Evelyn<span>.</span></h1><p>Moderation assistance for TikTok-first newsroom publishing. Recommendations only; editors decide.</p></header><PolicyDesk policies={policies} loading={policyLoading} error={policyError} onCreate={createPolicy} onEdit={editPolicy} onDelete={deletePolicy} />{error ? <p className="error" role="alert">{error}</p> : null}<div className="workbench"><section className="moderation-card"><div className="card-intro"><p className="step">01 / LAYER 1</p><h2>News frame</h2></div><form onSubmit={(event) => analyze(event, "frame")}><label>Title<input value={title} onChange={(event) => setTitle(event.target.value)} required /></label><label>Summary<textarea value={summary} onChange={(event) => setSummary(event.target.value)} rows={4} /></label><button disabled={loading !== null} type="submit">{loading === "frame" ? "Analyzing..." : "Analyze frame"}</button></form><ResultPanel result={frameResult} /></section><section className="moderation-card"><div className="card-intro"><p className="step">02 / LAYER 2</p><h2>Full script</h2></div><form onSubmit={(event) => analyze(event, "script")}><label>Title <span>(optional)</span><input value={scriptTitle} onChange={(event) => setScriptTitle(event.target.value)} /></label><label>Script<textarea value={script} onChange={(event) => setScript(event.target.value)} rows={9} required /></label><button disabled={loading !== null} type="submit">{loading === "script" ? "Analyzing..." : "Analyze script"}</button></form><ResultPanel result={scriptResult} /></section></div></main>;
 }

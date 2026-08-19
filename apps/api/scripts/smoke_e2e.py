@@ -1,4 +1,4 @@
-"""Black-box smoke test for the company-policy API flow."""
+"""Black-box smoke test for custom-policy CRUD in offline mock mode."""
 
 from __future__ import annotations
 
@@ -54,11 +54,11 @@ def main() -> None:
     temp_dir = Path(tempfile.mkdtemp(prefix="evelyn-smoke-"))
     port = available_port()
     base_url = f"http://127.0.0.1:{port}"
-    token = f"smoke-{uuid4().hex}"
+    token = f"Smoke policy {uuid4().hex}"
     environment = {
         **os.environ,
         "MODERATION_MODE": "mock",
-        "COMPANY_POLICY_STORE_PATH": str(temp_dir / "company_policies.json"),
+        "POLICY_STORE_PATH": str(temp_dir / "policies.json"),
         "PYTHONPATH": str(API_DIR),
     }
     process = subprocess.Popen(
@@ -76,11 +76,10 @@ def main() -> None:
             "/api/v1/policies",
             method="POST",
             payload={
-                "company_id": "evelyn-news",
-                "title": "Smoke embargo",
-                "keywords": [token],
-                "decision": "BLOCK",
-                "reason": "Synthetic policy used only by the E2E smoke test.",
+                "name": token,
+                "rule_text": "Synthetic policy used only by the E2E CRUD smoke test.",
+                "violation_action": "BLOCK",
+                "enabled": True,
             },
         )
         assert status == 201, created
@@ -89,26 +88,22 @@ def main() -> None:
         status, catalog = request(base_url, "/api/v1/policies")
         assert status == 200, catalog
         assert isinstance(catalog, dict)
-        assert any(policy["id"] == created["id"] for policy in catalog["policies"])
+        assert any(policy["rule_id"] == created["rule_id"] for policy in catalog["policies"])
 
-        status, moderated = request(
+        status, updated = request(
             base_url,
-            "/api/v1/moderate/frame",
-            method="POST",
-            payload={
-                "company_id": "evelyn-news",
-                "title": f"{token} bulletin",
-                "summary": "Synthetic policy smoke-test content.",
-            },
+            f"/api/v1/policies/{created['rule_id']}",
+            method="PATCH",
+            payload={"enabled": False, "violation_action": "REVIEW"},
         )
-        assert status == 200, moderated
-        assert isinstance(moderated, dict)
-        assert moderated["decision"] == "BLOCK", moderated
-        assert moderated["policy_results"][-1]["rule_id"] == created["rule_id"], moderated
+        assert status == 200, updated
+        assert isinstance(updated, dict)
+        assert updated["rule_id"] == created["rule_id"]
+        assert updated["enabled"] is False
 
-        status, deleted = request(base_url, f"/api/v1/policies/{created['id']}", method="DELETE")
+        status, deleted = request(base_url, f"/api/v1/policies/{created['rule_id']}", method="DELETE")
         assert status == 204, deleted
-        print("Company-policy E2E smoke passed.")
+        print("Custom-policy CRUD E2E smoke passed.")
     finally:
         process.terminate()
         try:

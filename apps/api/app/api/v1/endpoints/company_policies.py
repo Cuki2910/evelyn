@@ -3,45 +3,57 @@ import logging
 from fastapi import APIRouter, HTTPException, status
 
 from app.modules.policy.company_policy import (
-    CompanyPolicy,
-    CompanyPolicyCatalog,
-    CompanyPolicyCreate,
     CompanyPolicyStore,
+    PolicyRule,
+    PolicyRuleCreate,
+    PolicyRuleList,
+    PolicyRuleUpdate,
 )
 
-router = APIRouter(prefix="/policies", tags=["company policies"])
+router = APIRouter(prefix="/policies", tags=["policies"])
 logger = logging.getLogger(__name__)
 policy_store = CompanyPolicyStore()
 
 
 def _policy_store_error(error: OSError | ValueError) -> HTTPException:
-    logger.error("Company policy storage failed", exc_info=error)
+    logger.error("Policy storage failed", exc_info=error)
     return HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="Company policy storage is temporarily unavailable.",
+        detail="Policy storage is temporarily unavailable.",
     )
 
 
-@router.get("", response_model=CompanyPolicyCatalog)
-async def list_company_policies() -> CompanyPolicyCatalog:
+@router.get("", response_model=PolicyRuleList)
+async def list_policies() -> PolicyRuleList:
     try:
-        return policy_store.catalog()
+        return PolicyRuleList(policies=policy_store.list())
     except (OSError, ValueError) as error:
         raise _policy_store_error(error) from None
 
 
-@router.post("", response_model=CompanyPolicy, status_code=status.HTTP_201_CREATED)
-async def create_company_policy(policy: CompanyPolicyCreate) -> CompanyPolicy:
+@router.post("", response_model=PolicyRule, status_code=status.HTTP_201_CREATED)
+async def create_policy(policy: PolicyRuleCreate) -> PolicyRule:
     try:
         return policy_store.create(policy)
     except (OSError, ValueError) as error:
         raise _policy_store_error(error) from None
 
 
-@router.delete("/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_company_policy(policy_id: str) -> None:
+@router.patch("/{rule_id}", response_model=PolicyRule)
+async def update_policy(rule_id: str, update: PolicyRuleUpdate) -> PolicyRule:
     try:
-        if not policy_store.delete(policy_id):
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company policy was not found.")
+        policy = policy_store.update(rule_id, update)
+    except (OSError, ValueError) as error:
+        raise _policy_store_error(error) from None
+    if policy is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy rule was not found.")
+    return policy
+
+
+@router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_policy(rule_id: str) -> None:
+    try:
+        if not policy_store.delete(rule_id):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy rule was not found.")
     except (OSError, ValueError) as error:
         raise _policy_store_error(error) from None

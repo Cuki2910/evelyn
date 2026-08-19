@@ -1,48 +1,28 @@
 from fastapi.testclient import TestClient
 
-from app.api.v1.endpoints import company_policies, moderation
+from app.api.v1.endpoints import company_policies
 from app.main import app
 from app.modules.policy.company_policy import CompanyPolicyStore
 
 
-def test_company_policy_endpoint_create_match_and_delete(monkeypatch, tmp_path) -> None:
-    monkeypatch.setenv("MODERATION_MODE", "mock")
-    store = CompanyPolicyStore(tmp_path / "company_policies.json")
-    monkeypatch.setattr(company_policies, "policy_store", store)
-    monkeypatch.setattr(moderation.moderation_service, "_policy_store", store)
+def test_policy_endpoint_crud(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(company_policies, "policy_store", CompanyPolicyStore(tmp_path / "policies.json"))
     client = TestClient(app)
-
-    created = client.post(
-        "/api/v1/policies",
-        json={
-            "company_id": "evelyn-news",
-            "title": "E2E embargo",
-            "keywords": ["e2e-embargo"],
-            "decision": "BLOCK",
-            "reason": "This content is embargoed for the end-to-end test.",
-        },
-    )
+    created = client.post("/api/v1/policies", json={"name": "International news", "rule_text": "Must affect Vietnam.", "violation_action": "BLOCK", "enabled": True})
 
     assert created.status_code == 201
-    policy = created.json()
-    assert policy["rule_id"].startswith("COMP-EVELYN-NEWS-E2E-EMBARGO-")
+    rule_id = created.json()["rule_id"]
+    assert client.get("/api/v1/policies").json()["policies"][0]["rule_id"] == rule_id
+    updated = client.patch(f"/api/v1/policies/{rule_id}", json={"name": "Updated", "enabled": False, "violation_action": "REVIEW"})
+    assert updated.status_code == 200
+    assert updated.json()["rule_id"] == rule_id
+    assert updated.json()["enabled"] is False
+    assert client.delete(f"/api/v1/policies/{rule_id}").status_code == 204
+    assert client.patch("/api/v1/policies/COMPANY-MISSING", json={"enabled": True}).status_code == 404
+    assert client.delete("/api/v1/policies/COMPANY-MISSING").status_code == 404
 
-    listed = client.get("/api/v1/policies")
-    assert listed.status_code == 200
-    assert [item["id"] for item in listed.json()["policies"]] == [policy["id"]]
 
-    moderated = client.post(
-        "/api/v1/moderate/frame",
-        json={
-            "company_id": "evelyn-news",
-            "title": "e2e-embargo bulletin",
-            "summary": "Synthetic end-to-end test content.",
-        },
-    )
-    assert moderated.status_code == 200
-    assert moderated.json()["decision"] == "BLOCK"
-    assert moderated.json()["policy_results"][-1]["rule_id"] == policy["rule_id"]
-
-    deleted = client.delete(f"/api/v1/policies/{policy['id']}")
-    assert deleted.status_code == 204
-    assert client.get("/api/v1/policies").json()["policies"] == []
+def test_policy_endpoint_rejects_pass(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(company_policies, "policy_store", CompanyPolicyStore(tmp_path / "policies.json"))
+    response = TestClient(app).post("/api/v1/policies", json={"name": "Rule", "rule_text": "Text", "violation_action": "PASS"})
+    assert response.status_code == 422

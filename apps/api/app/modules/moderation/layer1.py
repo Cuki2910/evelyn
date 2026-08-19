@@ -50,6 +50,7 @@ class Layer1Moderator:
             risk_categories=list(dict.fromkeys(item.category for item in violations)),
             violations=violations,
             policy_results=policy_results,
+            custom_policy_results=[],
             reason=self._reason_for(decision),
             requires_layer2=decision is not Decision.BLOCK,
             analysis_status=AnalysisStatus.COMPLETE,

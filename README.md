@@ -94,15 +94,19 @@ terms before using anything beyond synthetic test content.
    fact-preserving suggested revision. If the provider is unavailable, the UI labels the
 fail-safe result separately. A human editor makes the final decision.
 
-## Company Policy Demo
+## Custom policies
 
-The **Policy desk** at the top of the UI lets you select one of the two demo companies and
-add local `REVIEW` or `BLOCK` keyword rules. Rules are stored in
-`apps/api/app/runtime/company_policies.json`, which is ignored by git. In `mock` mode, a
-matching company rule is included as policy evidence and can change the moderation decision.
-This is a local demo facility, not multi-tenant production policy management. On Vercel
-serverless, its filesystem is ephemeral: policy create/delete changes can disappear after a
-function restart. Add durable database-backed storage before relying on it online.
+The **Policies** desk stores editor-authored natural-language rules in `data/policies.json`,
+which is ignored by git. A rule has an editor-selected `REVIEW` or `BLOCK` violation action;
+the LLM only returns `COMPLIANT`, `VIOLATED`, or `UNCERTAIN`, and the backend maps those results
+deterministically. Enabled rules are evaluated once per moderation layer in LLM mode and their
+results participate in `BLOCK > REVIEW > PASS` aggregation.
+
+`mock` mode deliberately does not interpret custom natural-language rules. CRUD remains available
+for offline, frontend, and E2E testing, while built-in deterministic moderation remains unchanged.
+Use LLM mode for semantic policy evaluation. On Vercel serverless, local policy storage is
+ephemeral; changes can disappear after a function restart. The Gemini free/unpaid tier is for
+synthetic MVP testing only, not confidential newsroom or production data.
 
 ## Vercel deployment
 
@@ -135,7 +139,7 @@ End-to-end policy smoke test:
 npm run smoke:e2e
 ```
 
-It starts a temporary mock API, creates a policy, verifies matching moderation, then deletes it.
+It starts a temporary mock API, verifies custom-policy CRUD, then deletes the synthetic rule.
 
 The test suite makes no external LLM calls. It covers Layer 1, Layer 2 `PASS`/`REVIEW`/
 `BLOCK`, blank scripts, OpenRouter privacy payloads, strict schemas, invalid/inconsistent LLM

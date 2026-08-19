@@ -55,6 +55,17 @@ class PolicyResult(BaseModel):
     reason: str
 
 
+class CustomPolicyResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str
+    name: str
+    status: str
+    decision: Decision
+    evidence: str | None
+    reason: str
+
+
 class FrameResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -63,6 +74,7 @@ class FrameResponse(BaseModel):
     risk_categories: list[str]
     violations: list[Violation]
     policy_results: list[PolicyResult]
+    custom_policy_results: list[CustomPolicyResult] = Field(default_factory=list)
     reason: str
     requires_layer2: bool
     analysis_status: AnalysisStatus
@@ -102,7 +114,7 @@ class ScriptRequest(BaseModel):
         return value
 
 
-COMPANY_POLICY_RULE_ID = re.compile(r"COMP-[A-Z0-9-]+")
+COMPANY_POLICY_RULE_ID = re.compile(r"COMPANY-[A-Z0-9]+")
 
 
 class SuggestedAction(str, Enum):
@@ -144,6 +156,7 @@ class ScriptResponse(BaseModel):
     risk_categories: list[str]
     violations: list[ScriptViolation]
     policy_references: list[PolicyReference]
+    custom_policy_results: list[CustomPolicyResult] = Field(default_factory=list)
     reason: str
     revised_script: str | None
     requires_human_review: bool

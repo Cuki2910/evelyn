@@ -17,7 +17,7 @@ that cannot be done safely. Always return null for PASS and BLOCK.
 Always set requires_human_review to true: an editor makes the final publishing decision for
 every recommendation.
 
-Set analysis_status to COMPLETE and provider_error to null. Do not invent policy IDs.
+Set analysis_status to COMPLETE, provider_error to null, and custom_policy_results to an empty list. Do not invent policy IDs.
 
 {SHARED_MODERATION_POLICY}
 """.strip()
